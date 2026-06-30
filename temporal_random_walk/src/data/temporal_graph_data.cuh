@@ -38,6 +38,12 @@ struct TemporalGraphData {
     Buffer<double>  forward_cumulative_weights_exponential;
     Buffer<double>  backward_cumulative_weights_exponential;
 
+    // Same shape as the *_exponential arrays above, but the per-group weight is
+    // degree-discounted (favours low-degree endpoints). See
+    // edge_data::update_temporal_weights_* for the formula.
+    Buffer<double>  forward_cumulative_weights_inverse_degree;
+    Buffer<double>  backward_cumulative_weights_inverse_degree;
+
     Buffer<size_t>  node_adj_offsets;
     Buffer<int>     node_adj_neighbors;
 
@@ -57,6 +63,10 @@ struct TemporalGraphData {
     Buffer<double>  outbound_backward_cumulative_weights_exponential;
     Buffer<double>  inbound_backward_cumulative_weights_exponential;
 
+    Buffer<double>  outbound_forward_cumulative_weights_inverse_degree;
+    Buffer<double>  outbound_backward_cumulative_weights_inverse_degree;
+    Buffer<double>  inbound_backward_cumulative_weights_inverse_degree;
+
     Buffer<float>   node_features;
     size_t          node_feature_dim = 0;
 
@@ -73,6 +83,8 @@ struct TemporalGraphData {
           active_node_ids(use_gpu_arg),
           forward_cumulative_weights_exponential(use_gpu_arg),
           backward_cumulative_weights_exponential(use_gpu_arg),
+          forward_cumulative_weights_inverse_degree(use_gpu_arg),
+          backward_cumulative_weights_inverse_degree(use_gpu_arg),
           node_adj_offsets(use_gpu_arg),
           node_adj_neighbors(use_gpu_arg),
           node_group_outbound_offsets(use_gpu_arg),
@@ -86,6 +98,9 @@ struct TemporalGraphData {
           outbound_forward_cumulative_weights_exponential(use_gpu_arg),
           outbound_backward_cumulative_weights_exponential(use_gpu_arg),
           inbound_backward_cumulative_weights_exponential(use_gpu_arg),
+          outbound_forward_cumulative_weights_inverse_degree(use_gpu_arg),
+          outbound_backward_cumulative_weights_inverse_degree(use_gpu_arg),
+          inbound_backward_cumulative_weights_inverse_degree(use_gpu_arg),
           node_features(false)
     {}
 

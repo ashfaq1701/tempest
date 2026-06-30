@@ -6,6 +6,7 @@ enum RandomPickerType {
     Linear,
     ExponentialIndex,
     ExponentialWeight,
+    ExponentialWeightInverseDegree,
     TemporalNode2Vec,
 
     // ONLY FOR TESTS

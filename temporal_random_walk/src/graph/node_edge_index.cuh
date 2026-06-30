@@ -115,6 +115,9 @@ namespace node_edge_index {
         std::vector<double> outbound_forward_cumulative_weights_exponential;
         std::vector<double> outbound_backward_cumulative_weights_exponential;
         std::vector<double> inbound_backward_cumulative_weights_exponential;
+        std::vector<double> outbound_forward_cumulative_weights_inverse_degree;
+        std::vector<double> outbound_backward_cumulative_weights_inverse_degree;
+        std::vector<double> inbound_backward_cumulative_weights_inverse_degree;
     };
 
     HOST inline NodeEdgeIndexSnapshot snapshot(
@@ -139,6 +142,12 @@ namespace node_edge_index {
             data.outbound_backward_cumulative_weights_exponential.size());
         snap.inbound_backward_cumulative_weights_exponential.resize(
             data.inbound_backward_cumulative_weights_exponential.size());
+        snap.outbound_forward_cumulative_weights_inverse_degree.resize(
+            data.outbound_forward_cumulative_weights_inverse_degree.size());
+        snap.outbound_backward_cumulative_weights_inverse_degree.resize(
+            data.outbound_backward_cumulative_weights_inverse_degree.size());
+        snap.inbound_backward_cumulative_weights_inverse_degree.resize(
+            data.inbound_backward_cumulative_weights_inverse_degree.size());
 
 #ifdef HAS_CUDA
         data.node_group_outbound_offsets.copy_to_host_async(
@@ -174,6 +183,15 @@ namespace node_edge_index {
         data.inbound_backward_cumulative_weights_exponential.copy_to_host_async(
             snap.inbound_backward_cumulative_weights_exponential.data(),
             snap.inbound_backward_cumulative_weights_exponential.size(), stream);
+        data.outbound_forward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.outbound_forward_cumulative_weights_inverse_degree.data(),
+            snap.outbound_forward_cumulative_weights_inverse_degree.size(), stream);
+        data.outbound_backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.outbound_backward_cumulative_weights_inverse_degree.data(),
+            snap.outbound_backward_cumulative_weights_inverse_degree.size(), stream);
+        data.inbound_backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.inbound_backward_cumulative_weights_inverse_degree.data(),
+            snap.inbound_backward_cumulative_weights_inverse_degree.size(), stream);
 
         if (data.use_gpu) {
             CUDA_CHECK_AND_CLEAR(cudaStreamSynchronize(stream));
@@ -204,6 +222,15 @@ namespace node_edge_index {
         data.inbound_backward_cumulative_weights_exponential.copy_to_host_async(
             snap.inbound_backward_cumulative_weights_exponential.data(),
             snap.inbound_backward_cumulative_weights_exponential.size());
+        data.outbound_forward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.outbound_forward_cumulative_weights_inverse_degree.data(),
+            snap.outbound_forward_cumulative_weights_inverse_degree.size());
+        data.outbound_backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.outbound_backward_cumulative_weights_inverse_degree.data(),
+            snap.outbound_backward_cumulative_weights_inverse_degree.size());
+        data.inbound_backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.inbound_backward_cumulative_weights_inverse_degree.data(),
+            snap.inbound_backward_cumulative_weights_inverse_degree.size());
 #endif
 
         return snap;

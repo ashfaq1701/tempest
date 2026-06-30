@@ -166,6 +166,7 @@ namespace random_pickers {
         const size_t slice_start = 0,
         const double* smem_weights = nullptr) {
         if (random_picker != RandomPickerType::ExponentialWeight &&
+            random_picker != RandomPickerType::ExponentialWeightInverseDegree &&
             random_picker != RandomPickerType::TemporalNode2Vec) {
             return -1;
         }

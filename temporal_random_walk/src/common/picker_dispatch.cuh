@@ -26,6 +26,8 @@ inline void dispatch_picker_type(RandomPickerType pt, Visitor&& visit) {
             visit(PickerTag<RandomPickerType::ExponentialIndex>{}); break;
         case RandomPickerType::ExponentialWeight:
             visit(PickerTag<RandomPickerType::ExponentialWeight>{}); break;
+        case RandomPickerType::ExponentialWeightInverseDegree:
+            visit(PickerTag<RandomPickerType::ExponentialWeightInverseDegree>{}); break;
         case RandomPickerType::TemporalNode2Vec:
             visit(PickerTag<RandomPickerType::TemporalNode2Vec>{}); break;
         case RandomPickerType::TEST_FIRST:

@@ -43,6 +43,9 @@ HOST void node_edge_index::clear(TemporalGraphData& data) {
     data.outbound_forward_cumulative_weights_exponential.shrink_to_fit_empty();
     data.outbound_backward_cumulative_weights_exponential.shrink_to_fit_empty();
     data.inbound_backward_cumulative_weights_exponential.shrink_to_fit_empty();
+    data.outbound_forward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
+    data.outbound_backward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
+    data.inbound_backward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
 }
 
 HOST SizeRange node_edge_index::get_edge_range(
@@ -495,7 +498,16 @@ HOST void node_edge_index::allocate_and_compute_node_ts_group_counts_and_offsets
 
 namespace {
 
-// per-direction host weight pipeline; outbound runs fwd+bwd, inbound bwd-only
+// per-direction host weight pipeline; outbound runs fwd+bwd, inbound bwd-only.
+//
+// When the *_id_cum_out pointers are non-null (and sources/targets/node_degree
+// supplied) the pipeline ALSO builds the inverse-degree cumulative arrays in the
+// same pass: each group's count factor group_sz is replaced by
+//   Σ_{edge e in group} 1/(deg(src_e)^2 · deg(tgt_e)^2)
+// while the exp(scaled_t) recency factor is shared. Per-node normalization then
+// cancels the constant deg(node)^2 of the grouping endpoint, leaving a node mass
+// ∝ exp(t)/deg(neighbour)^2 that favours low-degree neighbours (mirror of the
+// exponential picker's degree-FAVOURING behaviour). See edge_data for the formula.
 template <bool ComputeForward>
 void compute_per_node_direction_weights_std(
     const size_t* ts_group_per_node_offsets,
@@ -507,8 +519,15 @@ void compute_per_node_direction_weights_std(
     const size_t node_index_capacity,
     const double timescale_bound,
     double* forward_cum_out,
-    double* backward_cum_out)
+    double* backward_cum_out,
+    const int* sources,
+    const int* targets,
+    const double* node_degree,
+    const size_t num_nodes,
+    double* forward_id_cum_out,
+    double* backward_id_cum_out)
 {
+    const bool compute_inverse_degree = (backward_id_cum_out != nullptr);
     if (groups_size == 0 || node_index_capacity == 0) return;
 
     std::vector<size_t> group_to_node(groups_size);
@@ -559,6 +578,8 @@ void compute_per_node_direction_weights_std(
 
     std::vector<double> raw_forward (ComputeForward ? groups_size : 0);
     std::vector<double> raw_backward(groups_size);
+    std::vector<double> raw_forward_id (compute_inverse_degree && ComputeForward ? groups_size : 0);
+    std::vector<double> raw_backward_id(compute_inverse_degree ? groups_size : 0);
 
     #pragma omp parallel for
     for (size_t pos = 0; pos < groups_size; ++pos) {
@@ -574,22 +595,42 @@ void compute_per_node_direction_weights_std(
         const int64_t max_ts   = node_max_ts[node];
         const double  scale    = node_time_scale[node];
 
+        // Degree-discounted count factor for the inverse-degree arrays: sum of
+        // 1/(deg(src)^2·deg(tgt)^2) over the group's edges (replaces group_sz).
+        double inv_deg_sum = 0.0;
+        if (compute_inverse_degree) {
+            for (size_t e = edge_start; e < edge_end; ++e) {
+                const size_t eid = edge_sorted_indices[e];
+                const int s = sources[eid];
+                const int t = targets[eid];
+                const double ds = (s >= 0 && static_cast<size_t>(s) < num_nodes) ? node_degree[s] : 1.0;
+                const double dt = (t >= 0 && static_cast<size_t>(t) < num_nodes) ? node_degree[t] : 1.0;
+                inv_deg_sum += 1.0 / (ds * ds * dt * dt);
+            }
+        }
+
         const double b_scaled = (timescale_bound > 0)
                                     ? static_cast<double>(group_ts - max_ts) * scale
                                     : static_cast<double>(group_ts - max_ts);
-        raw_backward[pos] = group_sz * std::exp(b_scaled);
+        const double exp_b = std::exp(b_scaled);
+        raw_backward[pos] = group_sz * exp_b;
+        if (compute_inverse_degree) raw_backward_id[pos] = inv_deg_sum * exp_b;
 
         if constexpr (ComputeForward) {
             const int64_t min_ts = node_min_ts[node];
             const double f_scaled = (timescale_bound > 0)
                                         ? static_cast<double>(min_ts - group_ts) * scale
                                         : static_cast<double>(min_ts - group_ts);
-            raw_forward[pos] = group_sz * std::exp(f_scaled);
+            const double exp_f = std::exp(f_scaled);
+            raw_forward[pos] = group_sz * exp_f;
+            if (compute_inverse_degree) raw_forward_id[pos] = inv_deg_sum * exp_f;
         }
     }
 
     std::vector<double> node_fwd_sum(ComputeForward ? node_index_capacity : 0, 0.0);
     std::vector<double> node_bwd_sum(node_index_capacity, 0.0);
+    std::vector<double> node_fwd_id_sum(compute_inverse_degree && ComputeForward ? node_index_capacity : 0, 0.0);
+    std::vector<double> node_bwd_id_sum(compute_inverse_degree ? node_index_capacity : 0, 0.0);
 
     #pragma omp parallel for
     for (size_t pos = 0; pos < groups_size; ++pos) {
@@ -600,10 +641,20 @@ void compute_per_node_direction_weights_std(
             #pragma omp atomic
             node_fwd_sum[node] += raw_forward[pos];
         }
+        if (compute_inverse_degree) {
+            #pragma omp atomic
+            node_bwd_id_sum[node] += raw_backward_id[pos];
+            if constexpr (ComputeForward) {
+                #pragma omp atomic
+                node_fwd_id_sum[node] += raw_forward_id[pos];
+            }
+        }
     }
 
     std::vector<double> norm_forward (ComputeForward ? groups_size : 0);
     std::vector<double> norm_backward(groups_size);
+    std::vector<double> norm_forward_id (compute_inverse_degree && ComputeForward ? groups_size : 0);
+    std::vector<double> norm_backward_id(compute_inverse_degree ? groups_size : 0);
 
     #pragma omp parallel for
     for (size_t pos = 0; pos < groups_size; ++pos) {
@@ -611,6 +662,12 @@ void compute_per_node_direction_weights_std(
         norm_backward[pos] = raw_backward[pos] / node_bwd_sum[node];
         if constexpr (ComputeForward) {
             norm_forward[pos] = raw_forward[pos] / node_fwd_sum[node];
+        }
+        if (compute_inverse_degree) {
+            norm_backward_id[pos] = raw_backward_id[pos] / node_bwd_id_sum[node];
+            if constexpr (ComputeForward) {
+                norm_forward_id[pos] = raw_forward_id[pos] / node_fwd_id_sum[node];
+            }
         }
     }
 
@@ -622,18 +679,30 @@ void compute_per_node_direction_weights_std(
         if (start >= end) continue;
 
         double b_cum = 0.0;
+        double b_id_cum = 0.0;
         if constexpr (ComputeForward) {
             double f_cum = 0.0;
+            double f_id_cum = 0.0;
             for (size_t pos = start; pos < end; ++pos) {
                 f_cum += norm_forward[pos];
                 b_cum += norm_backward[pos];
                 forward_cum_out[pos]  = f_cum;
                 backward_cum_out[pos] = b_cum;
+                if (compute_inverse_degree) {
+                    f_id_cum += norm_forward_id[pos];
+                    b_id_cum += norm_backward_id[pos];
+                    forward_id_cum_out[pos]  = f_id_cum;
+                    backward_id_cum_out[pos] = b_id_cum;
+                }
             }
         } else {
             for (size_t pos = start; pos < end; ++pos) {
                 b_cum += norm_backward[pos];
                 backward_cum_out[pos] = b_cum;
+                if (compute_inverse_degree) {
+                    b_id_cum += norm_backward_id[pos];
+                    backward_id_cum_out[pos] = b_id_cum;
+                }
             }
         }
     }
@@ -649,8 +718,30 @@ HOST void node_edge_index::update_temporal_weights_std(
 
     data.outbound_forward_cumulative_weights_exponential.resize(outbound_groups_size);
     data.outbound_backward_cumulative_weights_exponential.resize(outbound_groups_size);
+    data.outbound_forward_cumulative_weights_inverse_degree.resize(outbound_groups_size);
+    data.outbound_backward_cumulative_weights_inverse_degree.resize(outbound_groups_size);
 
     const bool is_directed = data.node_group_inbound_offsets.size() > 0;
+
+    // Per-node total degree (out + in for directed), clamped >= 1, indexed by
+    // node id. Shared by both direction passes for the inverse-degree discount.
+    const size_t num_nodes = node_index_capacity;
+    std::vector<double> node_degree(num_nodes, 1.0);
+    {
+        const size_t* out_off = data.node_group_outbound_offsets.data();
+        const size_t* in_off  = is_directed ? data.node_group_inbound_offsets.data() : nullptr;
+        const size_t in_off_size = data.node_group_inbound_offsets.size();
+        #pragma omp parallel for
+        for (size_t i = 0; i < num_nodes; ++i) {
+            size_t d = out_off[i + 1] - out_off[i];
+            if (is_directed && i + 1 < in_off_size) {
+                d += in_off[i + 1] - in_off[i];
+            }
+            node_degree[i] = (d == 0) ? 1.0 : static_cast<double>(d);
+        }
+    }
+    const int* sources = data.sources.data();
+    const int* targets = data.targets.data();
 
     compute_per_node_direction_weights_std</*ComputeForward=*/true>(
         data.count_ts_group_per_node_outbound.data(),
@@ -662,12 +753,16 @@ HOST void node_edge_index::update_temporal_weights_std(
         node_index_capacity,
         timescale_bound,
         data.outbound_forward_cumulative_weights_exponential.data(),
-        data.outbound_backward_cumulative_weights_exponential.data());
+        data.outbound_backward_cumulative_weights_exponential.data(),
+        sources, targets, node_degree.data(), num_nodes,
+        data.outbound_forward_cumulative_weights_inverse_degree.data(),
+        data.outbound_backward_cumulative_weights_inverse_degree.data());
 
     if (is_directed) {
         const size_t inbound_groups_size = data.node_ts_group_inbound_offsets.size();
         const size_t inbound_node_capacity = data.node_group_inbound_offsets.size() - 1;
         data.inbound_backward_cumulative_weights_exponential.resize(inbound_groups_size);
+        data.inbound_backward_cumulative_weights_inverse_degree.resize(inbound_groups_size);
 
         compute_per_node_direction_weights_std</*ComputeForward=*/false>(
             data.count_ts_group_per_node_inbound.data(),
@@ -679,7 +774,10 @@ HOST void node_edge_index::update_temporal_weights_std(
             inbound_node_capacity,
             timescale_bound,
             /*forward_cum_out=*/nullptr,
-            data.inbound_backward_cumulative_weights_exponential.data());
+            data.inbound_backward_cumulative_weights_exponential.data(),
+            sources, targets, node_degree.data(), num_nodes,
+            /*forward_id_cum_out=*/nullptr,
+            data.inbound_backward_cumulative_weights_inverse_degree.data());
     }
 }
 
@@ -1012,7 +1110,10 @@ HOST void node_edge_index::allocate_and_compute_node_ts_group_counts_and_offsets
 namespace {
 
 // per-node fused fwd+bwd weights, one block per node (outbound path).
-template <int BLOCK_SIZE>
+// When UseInverseDegree is true each group's count factor (group_sz) is replaced
+// by Σ 1/(deg(src)^2·deg(tgt)^2) over the group's edges; the exp() recency factor
+// is unchanged. sources/targets/degree/num_nodes are only read in that case.
+template <int BLOCK_SIZE, bool UseInverseDegree = false>
 __global__ void compute_per_node_weights_fwd_bwd_kernel(
     const size_t* __restrict__ group_offsets,
     const size_t* __restrict__ group_to_edge_start,
@@ -1023,7 +1124,11 @@ __global__ void compute_per_node_weights_fwd_bwd_kernel(
     double* __restrict__ raw_fwd_scratch,
     double* __restrict__ raw_bwd_scratch,
     double* __restrict__ cum_fwd_out,
-    double* __restrict__ cum_bwd_out) {
+    double* __restrict__ cum_bwd_out,
+    const int* __restrict__ sources = nullptr,
+    const int* __restrict__ targets = nullptr,
+    const double* __restrict__ degree = nullptr,
+    const size_t num_nodes = 0) {
 
     const size_t node = blockIdx.x;
     const int tid = static_cast<int>(threadIdx.x);
@@ -1084,15 +1189,29 @@ __global__ void compute_per_node_weights_fwd_bwd_kernel(
             const size_t edge_end = (local_idx + 1 < num_groups)
                 ? group_to_edge_start[pos + 1]
                 : node_to_edge_offsets[node + 1];
-            const double group_sz  = static_cast<double>(edge_end - edge_start);
+            double weight_factor;
+            if constexpr (UseInverseDegree) {
+                double inv = 0.0;
+                for (size_t e = edge_start; e < edge_end; ++e) {
+                    const size_t eid = edge_sorted_indices[e];
+                    const int s = sources[eid];
+                    const int t = targets[eid];
+                    const double ds = (s >= 0 && static_cast<size_t>(s) < num_nodes) ? degree[s] : 1.0;
+                    const double dt = (t >= 0 && static_cast<size_t>(t) < num_nodes) ? degree[t] : 1.0;
+                    inv += 1.0 / (ds * ds * dt * dt);
+                }
+                weight_factor = inv;
+            } else {
+                weight_factor = static_cast<double>(edge_end - edge_start);
+            }
             const int64_t group_ts = timestamps[edge_sorted_indices[edge_start]];
             // Pivot exponents ≤ 0 — see compute_per_node_direction_weights_std
             // for rationale. Distribution preserved by softmax shift-invariance;
             // weights stay bounded so the cumulative scan can't overflow.
             const double tf = static_cast<double>(min_ts - group_ts) * scale;
             const double tb = static_cast<double>(group_ts - max_ts) * scale;
-            raw_f = group_sz * exp(tf);
-            raw_b = group_sz * exp(tb);
+            raw_f = weight_factor * exp(tf);
+            raw_b = weight_factor * exp(tb);
             raw_fwd_scratch[pos] = raw_f;
             raw_bwd_scratch[pos] = raw_b;
         }
@@ -1143,7 +1262,7 @@ __global__ void compute_per_node_weights_fwd_bwd_kernel(
 }
 
 // per-node bwd-only weights for the directed inbound path; mirror of fwd_bwd kernel
-template <int BLOCK_SIZE>
+template <int BLOCK_SIZE, bool UseInverseDegree = false>
 __global__ void compute_per_node_weights_bwd_only_kernel(
     const size_t* __restrict__ group_offsets,
     const size_t* __restrict__ group_to_edge_start,
@@ -1152,7 +1271,11 @@ __global__ void compute_per_node_weights_bwd_only_kernel(
     const int64_t* __restrict__ timestamps,
     const double timescale_bound,
     double* __restrict__ raw_bwd_scratch,
-    double* __restrict__ cum_bwd_out) {
+    double* __restrict__ cum_bwd_out,
+    const int* __restrict__ sources = nullptr,
+    const int* __restrict__ targets = nullptr,
+    const double* __restrict__ degree = nullptr,
+    const size_t num_nodes = 0) {
 
     const size_t node = blockIdx.x;
     const int tid = static_cast<int>(threadIdx.x);
@@ -1208,10 +1331,24 @@ __global__ void compute_per_node_weights_bwd_only_kernel(
             const size_t edge_end = (local_idx + 1 < num_groups)
                 ? group_to_edge_start[pos + 1]
                 : node_to_edge_offsets[node + 1];
-            const double group_sz  = static_cast<double>(edge_end - edge_start);
+            double weight_factor;
+            if constexpr (UseInverseDegree) {
+                double inv = 0.0;
+                for (size_t e = edge_start; e < edge_end; ++e) {
+                    const size_t eid = edge_sorted_indices[e];
+                    const int s = sources[eid];
+                    const int t = targets[eid];
+                    const double ds = (s >= 0 && static_cast<size_t>(s) < num_nodes) ? degree[s] : 1.0;
+                    const double dt = (t >= 0 && static_cast<size_t>(t) < num_nodes) ? degree[t] : 1.0;
+                    inv += 1.0 / (ds * ds * dt * dt);
+                }
+                weight_factor = inv;
+            } else {
+                weight_factor = static_cast<double>(edge_end - edge_start);
+            }
             const int64_t group_ts = timestamps[edge_sorted_indices[edge_start]];
             const double tb = static_cast<double>(group_ts - max_ts) * scale;
-            raw_b = group_sz * exp(tb);
+            raw_b = weight_factor * exp(tb);
             raw_bwd_scratch[pos] = raw_b;
         }
         const double tile_sum_b = BlockReduce(reduce_storage).Sum(raw_b);
@@ -1253,15 +1390,45 @@ HOST void node_edge_index::update_temporal_weights_cuda(
 
     data.outbound_forward_cumulative_weights_exponential.resize(outbound_groups_size);
     data.outbound_backward_cumulative_weights_exponential.resize(outbound_groups_size);
+    data.outbound_forward_cumulative_weights_inverse_degree.resize(outbound_groups_size);
+    data.outbound_backward_cumulative_weights_inverse_degree.resize(outbound_groups_size);
 
     const bool is_directed = (data.node_group_inbound_offsets.size() > 0);
     if (is_directed) {
         const size_t inbound_groups_size = data.node_ts_group_inbound_offsets.size();
         data.inbound_backward_cumulative_weights_exponential.resize(inbound_groups_size);
+        data.inbound_backward_cumulative_weights_inverse_degree.resize(inbound_groups_size);
     }
 
     int64_t* timestamps_ptr = data.timestamps.data();
     constexpr int BLOCK_SIZE = 128;
+
+    // Per-node total degree (clamped >= 1) on device, shared by the inverse-degree
+    // kernel passes; mirror of edge_data::update_temporal_weights_cuda's buffer.
+    const size_t num_nodes = node_index_capacity;
+    Buffer<double> d_degree(/*use_gpu=*/true);
+    d_degree.resize(num_nodes > 0 ? num_nodes : 1);
+    {
+        const size_t* out_off_raw = data.node_group_outbound_offsets.data();
+        const size_t* in_off_raw  = is_directed ? data.node_group_inbound_offsets.data() : nullptr;
+        const size_t  in_off_size = data.node_group_inbound_offsets.size();
+        double* deg_raw = d_degree.data();
+        const bool directed = is_directed;
+        thrust::for_each(
+            DEVICE_EXECUTION_POLICY,
+            thrust::make_counting_iterator<size_t>(0),
+            thrust::make_counting_iterator<size_t>(num_nodes),
+            [deg_raw, out_off_raw, in_off_raw, in_off_size, directed] HOST DEVICE (const size_t i) {
+                size_t d = out_off_raw[i + 1] - out_off_raw[i];
+                if (directed && i + 1 < in_off_size) d += in_off_raw[i + 1] - in_off_raw[i];
+                deg_raw[i] = (d == 0) ? 1.0 : static_cast<double>(d);
+            });
+    }
+    CUDA_KERNEL_CHECK("After degree computation in node_edge_index::update_temporal_weights_cuda");
+
+    const int* d_sources = data.sources.data();
+    const int* d_targets = data.targets.data();
+    const double* d_degree_raw = d_degree.data();
 
     if (outbound_groups_size > 0) {
         Buffer<double> raw_fwd_scratch(/*use_gpu=*/true);
@@ -1279,7 +1446,7 @@ HOST void node_edge_index::update_temporal_weights_cuda(
 
         const dim3 grid(static_cast<unsigned int>(node_index_capacity));
         const dim3 block(BLOCK_SIZE);
-        compute_per_node_weights_fwd_bwd_kernel<BLOCK_SIZE><<<grid, block>>>(
+        compute_per_node_weights_fwd_bwd_kernel<BLOCK_SIZE, /*UseInverseDegree=*/false><<<grid, block>>>(
             group_offsets_ptr,
             group_to_edge_start_ptr,
             node_to_edge_offsets_ptr,
@@ -1291,6 +1458,21 @@ HOST void node_edge_index::update_temporal_weights_cuda(
             cum_fwd_out,
             cum_bwd_out);
         CUDA_KERNEL_CHECK("After outbound weights processing in update_temporal_weights_cuda");
+
+        // Inverse-degree pass (reuses scratch; serialized on the default stream).
+        compute_per_node_weights_fwd_bwd_kernel<BLOCK_SIZE, /*UseInverseDegree=*/true><<<grid, block>>>(
+            group_offsets_ptr,
+            group_to_edge_start_ptr,
+            node_to_edge_offsets_ptr,
+            edge_indices_ptr,
+            timestamps_ptr,
+            timescale_bound,
+            raw_fwd_scratch.data(),
+            raw_bwd_scratch.data(),
+            data.outbound_forward_cumulative_weights_inverse_degree.data(),
+            data.outbound_backward_cumulative_weights_inverse_degree.data(),
+            d_sources, d_targets, d_degree_raw, num_nodes);
+        CUDA_KERNEL_CHECK("After outbound inverse-degree weights processing in update_temporal_weights_cuda");
     }
 
     if (is_directed) {
@@ -1310,7 +1492,7 @@ HOST void node_edge_index::update_temporal_weights_cuda(
 
             const dim3 grid(static_cast<unsigned int>(inbound_node_capacity));
             const dim3 block(BLOCK_SIZE);
-            compute_per_node_weights_bwd_only_kernel<BLOCK_SIZE><<<grid, block>>>(
+            compute_per_node_weights_bwd_only_kernel<BLOCK_SIZE, /*UseInverseDegree=*/false><<<grid, block>>>(
                 group_offsets_ptr,
                 group_to_edge_start_ptr,
                 node_to_edge_offsets_ptr,
@@ -1320,6 +1502,18 @@ HOST void node_edge_index::update_temporal_weights_cuda(
                 raw_bwd_scratch.data(),
                 cum_bwd_out);
             CUDA_KERNEL_CHECK("After inbound weights processing in update_temporal_weights_cuda");
+
+            compute_per_node_weights_bwd_only_kernel<BLOCK_SIZE, /*UseInverseDegree=*/true><<<grid, block>>>(
+                group_offsets_ptr,
+                group_to_edge_start_ptr,
+                node_to_edge_offsets_ptr,
+                edge_indices_ptr,
+                timestamps_ptr,
+                timescale_bound,
+                raw_bwd_scratch.data(),
+                data.inbound_backward_cumulative_weights_inverse_degree.data(),
+                d_sources, d_targets, d_degree_raw, num_nodes);
+            CUDA_KERNEL_CHECK("After inbound inverse-degree weights processing in update_temporal_weights_cuda");
         }
     }
 }
@@ -1417,6 +1611,9 @@ HOST size_t node_edge_index::get_memory_used(const TemporalGraphData& data) {
     total_memory += data.outbound_forward_cumulative_weights_exponential.size() * sizeof(double);
     total_memory += data.outbound_backward_cumulative_weights_exponential.size() * sizeof(double);
     total_memory += data.inbound_backward_cumulative_weights_exponential.size() * sizeof(double);
+    total_memory += data.outbound_forward_cumulative_weights_inverse_degree.size() * sizeof(double);
+    total_memory += data.outbound_backward_cumulative_weights_inverse_degree.size() * sizeof(double);
+    total_memory += data.inbound_backward_cumulative_weights_inverse_degree.size() * sizeof(double);
 
     return total_memory;
 }

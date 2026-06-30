@@ -188,6 +188,8 @@ namespace edge_data {
         std::vector<int64_t> unique_timestamps;
         std::vector<double>  forward_cumulative_weights_exponential;
         std::vector<double>  backward_cumulative_weights_exponential;
+        std::vector<double>  forward_cumulative_weights_inverse_degree;
+        std::vector<double>  backward_cumulative_weights_inverse_degree;
         std::vector<int>     active_node_ids;
         std::vector<size_t>  node_adj_offsets;
         std::vector<int>     node_adj_neighbors;
@@ -211,6 +213,10 @@ namespace edge_data {
             data.forward_cumulative_weights_exponential.size());
         snap.backward_cumulative_weights_exponential.resize(
             data.backward_cumulative_weights_exponential.size());
+        snap.forward_cumulative_weights_inverse_degree.resize(
+            data.forward_cumulative_weights_inverse_degree.size());
+        snap.backward_cumulative_weights_inverse_degree.resize(
+            data.backward_cumulative_weights_inverse_degree.size());
         snap.active_node_ids.resize(data.active_node_ids.size());
         snap.node_adj_offsets.resize(data.node_adj_offsets.size());
         snap.node_adj_neighbors.resize(data.node_adj_neighbors.size());
@@ -234,6 +240,12 @@ namespace edge_data {
         data.backward_cumulative_weights_exponential.copy_to_host_async(
             snap.backward_cumulative_weights_exponential.data(),
             snap.backward_cumulative_weights_exponential.size(), stream);
+        data.forward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.forward_cumulative_weights_inverse_degree.data(),
+            snap.forward_cumulative_weights_inverse_degree.size(), stream);
+        data.backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.backward_cumulative_weights_inverse_degree.data(),
+            snap.backward_cumulative_weights_inverse_degree.size(), stream);
         data.active_node_ids.copy_to_host_async(
             snap.active_node_ids.data(),
             snap.active_node_ids.size(), stream);
@@ -261,6 +273,12 @@ namespace edge_data {
         data.backward_cumulative_weights_exponential.copy_to_host_async(
             snap.backward_cumulative_weights_exponential.data(),
             snap.backward_cumulative_weights_exponential.size());
+        data.forward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.forward_cumulative_weights_inverse_degree.data(),
+            snap.forward_cumulative_weights_inverse_degree.size());
+        data.backward_cumulative_weights_inverse_degree.copy_to_host_async(
+            snap.backward_cumulative_weights_inverse_degree.data(),
+            snap.backward_cumulative_weights_inverse_degree.size());
         data.active_node_ids.copy_to_host_async(
             snap.active_node_ids.data(), snap.active_node_ids.size());
         data.node_adj_offsets.copy_to_host_async(

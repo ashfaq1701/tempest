@@ -364,6 +364,7 @@ PYBIND11_MODULE(_temporal_random_walk, m)
                         - "Linear": Linear time decay
                         - "ExponentialIndex": Exponential decay with indices
                         - "ExponentialWeight": Exponential decay with weights
+                        - "ExponentialWeightInverseDegree": Exponential decay with inverse-degree-discounted weights (favours low-degree nodes)
                         - "TemporalNode2Vec": Temporal-node2vec transition bias
                 num_walks_per_node (int): Number of walks per starting node.
                 initial_edge_bias (str, optional): Bias type for first edge selection.
@@ -474,6 +475,7 @@ PYBIND11_MODULE(_temporal_random_walk, m)
                         - "Linear": Linear time decay
                         - "ExponentialIndex": Exponential decay with indices
                         - "ExponentialWeight": Exponential decay with weights
+                        - "ExponentialWeightInverseDegree": Exponential decay with inverse-degree-discounted weights (favours low-degree nodes)
                         - "TemporalNode2Vec": Temporal-node2vec transition bias
                 num_walks_per_node (int): Number of walks per starting node.
                 initial_edge_bias (str, optional): Bias type for first edge selection.
@@ -613,6 +615,7 @@ PYBIND11_MODULE(_temporal_random_walk, m)
                         - "Linear": Linear time decay
                         - "ExponentialIndex": Exponential decay with indices
                         - "ExponentialWeight": Exponential decay with weights
+                        - "ExponentialWeightInverseDegree": Exponential decay with inverse-degree-discounted weights (favours low-degree nodes)
                         - "TemporalNode2Vec": Temporal-node2vec transition bias
                 num_walks_per_node (int): Number of walks per seed node.
                 initial_edge_bias (str, optional): Bias type for first edge selection.
@@ -728,6 +731,7 @@ PYBIND11_MODULE(_temporal_random_walk, m)
                         - "Linear": Linear time decay
                         - "ExponentialIndex": Exponential decay with indices
                         - "ExponentialWeight": Exponential decay with weights
+                        - "ExponentialWeightInverseDegree": Exponential decay with inverse-degree-discounted weights (favours low-degree nodes)
                         - "TemporalNode2Vec": Temporal-node2vec transition bias
                 num_walks_total (int): Total Number of walks to generate.
                 initial_edge_bias (str, optional): Bias type for first edge selection.

@@ -35,6 +35,10 @@ inline RandomPickerType picker_type_from_string(const std::string& picker_type_s
     {
         return RandomPickerType::ExponentialWeight;
     }
+    else if (picker_type_str == "ExponentialWeightInverseDegree")
+    {
+        return RandomPickerType::ExponentialWeightInverseDegree;
+    }
     else if (picker_type_str == "TemporalNode2Vec")
     {
         return RandomPickerType::TemporalNode2Vec;

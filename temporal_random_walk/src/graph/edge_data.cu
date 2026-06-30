@@ -437,11 +437,43 @@ HOST void edge_data::update_timestamp_groups_std(TemporalGraphData& data) {
     populate_active_nodes_std(data);
 }
 
+namespace {
+    // Per-node degree from the per-node CSR offsets, clamped to >= 1. For
+    // undirected graphs node_group_outbound_offsets already counts both
+    // endpoints (full degree); for directed graphs out- and in-degree are
+    // summed to get total degree. Used by the inverse-degree weight build.
+    HOST std::vector<double> compute_node_degree_host(const TemporalGraphData& data) {
+        const size_t n = data.active_node_ids.size();
+        std::vector<double> deg(n, 1.0);
+        if (n == 0) return deg;
+
+        const size_t* out_off = data.node_group_outbound_offsets.data();
+        const size_t  out_off_size = data.node_group_outbound_offsets.size();
+        const bool directed = data.node_group_inbound_offsets.size() > 0;
+        const size_t* in_off = directed ? data.node_group_inbound_offsets.data() : nullptr;
+
+        #pragma omp parallel for
+        for (size_t i = 0; i < n; ++i) {
+            size_t d = 0;
+            if (i + 1 < out_off_size) {
+                d += out_off[i + 1] - out_off[i];
+            }
+            if (directed && i + 1 < data.node_group_inbound_offsets.size()) {
+                d += in_off[i + 1] - in_off[i];
+            }
+            deg[i] = (d == 0) ? 1.0 : static_cast<double>(d);
+        }
+        return deg;
+    }
+}  // namespace
+
 HOST void edge_data::update_temporal_weights_std(
     TemporalGraphData& data, const double timescale_bound) {
     if (data.timestamps.size() == 0) {
         data.forward_cumulative_weights_exponential.shrink_to_fit_empty();
         data.backward_cumulative_weights_exponential.shrink_to_fit_empty();
+        data.forward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
+        data.backward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
         return;
     }
 
@@ -455,10 +487,20 @@ HOST void edge_data::update_temporal_weights_std(
 
     data.forward_cumulative_weights_exponential.resize(num_groups);
     data.backward_cumulative_weights_exponential.resize(num_groups);
+    data.forward_cumulative_weights_inverse_degree.resize(num_groups);
+    data.backward_cumulative_weights_inverse_degree.resize(num_groups);
 
     auto* forward = data.forward_cumulative_weights_exponential.data();
     auto* backward = data.backward_cumulative_weights_exponential.data();
+    auto* forward_id = data.forward_cumulative_weights_inverse_degree.data();
+    auto* backward_id = data.backward_cumulative_weights_inverse_degree.data();
     const auto* offsets = data.timestamp_group_offsets.data();
+
+    // Per-node degree (clamped >= 1) for the inverse-degree discount factor.
+    const std::vector<double> node_degree = compute_node_degree_host(data);
+    const auto* sources = data.sources.data();
+    const auto* targets = data.targets.data();
+    const size_t num_nodes = node_degree.size();
 
     // Pivot so that the largest weight in each direction lands at exp(0) = 1
     // instead of exp(span·scale), which would overflow on long-span unix-
@@ -487,30 +529,55 @@ HOST void edge_data::update_temporal_weights_std(
         const double fwd_scaled = (timescale_bound > 0) ? t_fwd * time_scale : t_fwd;
         const double bwd_scaled = (timescale_bound > 0) ? t_bwd * time_scale : t_bwd;
 
-        forward[group]  = static_cast<double>(group_size) * std::exp(fwd_scaled);
-        backward[group] = static_cast<double>(group_size) * std::exp(bwd_scaled);
+        const double exp_fwd = std::exp(fwd_scaled);
+        const double exp_bwd = std::exp(bwd_scaled);
+
+        forward[group]  = static_cast<double>(group_size) * exp_fwd;
+        backward[group] = static_cast<double>(group_size) * exp_bwd;
+
+        // Inverse-degree weight: same exp(scaled_t) recency factor, but the
+        // group_size count is replaced by Σ 1/(deg(src)^2 deg(tgt)^2) over the
+        // edges in the group (favours edges between low-degree nodes).
+        double inv_deg_sum = 0.0;
+        for (size_t e = start; e < start + group_size; ++e) {
+            const int s = sources[e];
+            const int t = targets[e];
+            const double ds = (s >= 0 && static_cast<size_t>(s) < num_nodes) ? node_degree[s] : 1.0;
+            const double dt = (t >= 0 && static_cast<size_t>(t) < num_nodes) ? node_degree[t] : 1.0;
+            inv_deg_sum += 1.0 / (ds * ds * dt * dt);
+        }
+        forward_id[group]  = inv_deg_sum * exp_fwd;
+        backward_id[group] = inv_deg_sum * exp_bwd;
     }
 
     double forward_sum = 0.0;
-    #pragma omp parallel for reduction(+:forward_sum)
+    double forward_id_sum = 0.0;
+    #pragma omp parallel for reduction(+:forward_sum,forward_id_sum)
     for (size_t group = 0; group < num_groups; ++group) {
         forward_sum += forward[group];
+        forward_id_sum += forward_id[group];
     }
 
     double backward_sum = 0.0;
-    #pragma omp parallel for reduction(+:backward_sum)
+    double backward_id_sum = 0.0;
+    #pragma omp parallel for reduction(+:backward_sum,backward_id_sum)
     for (size_t group = 0; group < num_groups; ++group) {
         backward_sum += backward[group];
+        backward_id_sum += backward_id[group];
     }
 
     #pragma omp parallel for
     for (size_t group = 0; group < num_groups; ++group) {
         forward[group]  /= forward_sum;
         backward[group] /= backward_sum;
+        forward_id[group]  /= forward_id_sum;
+        backward_id[group] /= backward_id_sum;
     }
 
     parallel_inclusive_scan(forward, num_groups);
     parallel_inclusive_scan(backward, num_groups);
+    parallel_inclusive_scan(forward_id, num_groups);
+    parallel_inclusive_scan(backward_id, num_groups);
 }
 
 #ifdef HAS_CUDA
@@ -765,6 +832,8 @@ HOST void edge_data::update_temporal_weights_cuda(
     if (data.timestamps.size() == 0) {
         data.forward_cumulative_weights_exponential.shrink_to_fit_empty();
         data.backward_cumulative_weights_exponential.shrink_to_fit_empty();
+        data.forward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
+        data.backward_cumulative_weights_inverse_degree.shrink_to_fit_empty();
         return;
     }
 
@@ -785,6 +854,8 @@ HOST void edge_data::update_temporal_weights_cuda(
 
     data.forward_cumulative_weights_exponential.resize(num_groups);
     data.backward_cumulative_weights_exponential.resize(num_groups);
+    data.forward_cumulative_weights_inverse_degree.resize(num_groups);
+    data.backward_cumulative_weights_inverse_degree.resize(num_groups);
 
     Buffer<double> d_forward_weights(true);
     d_forward_weights.resize(num_groups);
@@ -878,6 +949,116 @@ HOST void edge_data::update_temporal_weights_cuda(
         num_groups
     );
     CUDA_KERNEL_CHECK("After cub inclusive_sum backward weights in update_temporal_weights_cuda");
+
+    // ── Inverse-degree pipeline ────────────────────────────────────────────
+    // Mirrors the exponential pipeline above, but replaces each group's count
+    // factor (group_size) with Σ 1/(deg(src)^2·deg(tgt)^2) over the group's
+    // edges, sharing the exp(scaled_t) recency factor. Favours low-degree
+    // endpoints (the mirror of the exponential picker's degree-favouring).
+    const size_t num_nodes = data.node_group_outbound_offsets.size() > 0
+                                 ? data.node_group_outbound_offsets.size() - 1
+                                 : 0;
+    Buffer<double> d_degree(true);
+    d_degree.resize(num_nodes > 0 ? num_nodes : 1);
+    {
+        const bool directed = data.node_group_inbound_offsets.size() > 0;
+        const size_t* out_off_raw = data.node_group_outbound_offsets.data();
+        const size_t* in_off_raw  = directed ? data.node_group_inbound_offsets.data() : nullptr;
+        const size_t  in_off_size = data.node_group_inbound_offsets.size();
+        double* deg_raw = d_degree.data();
+        thrust::for_each(
+            DEVICE_EXECUTION_POLICY,
+            thrust::make_counting_iterator<size_t>(0),
+            thrust::make_counting_iterator<size_t>(num_nodes),
+            [deg_raw, out_off_raw, in_off_raw, in_off_size, directed] HOST DEVICE (const size_t i) {
+                size_t d = out_off_raw[i + 1] - out_off_raw[i];
+                if (directed && i + 1 < in_off_size) d += in_off_raw[i + 1] - in_off_raw[i];
+                deg_raw[i] = (d == 0) ? 1.0 : static_cast<double>(d);
+            });
+    }
+    CUDA_KERNEL_CHECK("After degree computation in update_temporal_weights_cuda");
+
+    Buffer<double> d_forward_id_weights(true);
+    d_forward_id_weights.resize(num_groups);
+    Buffer<double> d_backward_id_weights(true);
+    d_backward_id_weights.resize(num_groups);
+
+    thrust::device_ptr<double> d_forward_id_ptr(d_forward_id_weights.data());
+    thrust::device_ptr<double> d_backward_id_ptr(d_backward_id_weights.data());
+
+    const int* d_sources = data.sources.data();
+    const int* d_targets = data.targets.data();
+    const double* d_degree_raw = d_degree.data();
+
+    thrust::transform(
+        DEVICE_EXECUTION_POLICY,
+        thrust::make_counting_iterator<size_t>(0),
+        thrust::make_counting_iterator<size_t>(num_groups),
+        thrust::make_zip_iterator(thrust::make_tuple(
+            d_forward_id_ptr,
+            d_backward_id_ptr
+        )),
+        [d_offsets, d_timestamps, max_timestamp, min_timestamp, timescale_bound, time_scale,
+         d_sources, d_targets, d_degree_raw, num_nodes]
+        HOST DEVICE (const size_t group) {
+            const size_t start = d_offsets[static_cast<long>(group)];
+            const size_t end   = d_offsets[static_cast<long>(group + 1)];
+
+            double inv_deg_sum = 0.0;
+            for (size_t e = start; e < end; ++e) {
+                const int s = d_sources[static_cast<long>(e)];
+                const int t = d_targets[static_cast<long>(e)];
+                const double ds = (s >= 0 && static_cast<size_t>(s) < num_nodes) ? d_degree_raw[s] : 1.0;
+                const double dt = (t >= 0 && static_cast<size_t>(t) < num_nodes) ? d_degree_raw[t] : 1.0;
+                inv_deg_sum += 1.0 / (ds * ds * dt * dt);
+            }
+
+            const int64_t group_timestamp = d_timestamps[static_cast<long>(start)];
+            const auto time_diff_forward  = static_cast<double>(min_timestamp - group_timestamp);
+            const auto time_diff_backward = static_cast<double>(group_timestamp - max_timestamp);
+            const double forward_scaled  = timescale_bound > 0 ? time_diff_forward * time_scale : time_diff_forward;
+            const double backward_scaled = timescale_bound > 0 ? time_diff_backward * time_scale : time_diff_backward;
+
+            return thrust::make_tuple(
+                inv_deg_sum * exp(forward_scaled),
+                inv_deg_sum * exp(backward_scaled));
+        }
+    );
+    CUDA_KERNEL_CHECK("After thrust transform inverse-degree weights in update_temporal_weights_cuda");
+
+    const double forward_id_sum = thrust::reduce(
+        DEVICE_EXECUTION_POLICY,
+        d_forward_id_ptr, d_forward_id_ptr + static_cast<long>(num_groups));
+    const double backward_id_sum = thrust::reduce(
+        DEVICE_EXECUTION_POLICY,
+        d_backward_id_ptr, d_backward_id_ptr + static_cast<long>(num_groups));
+    CUDA_KERNEL_CHECK("After thrust reduce inverse-degree weights in update_temporal_weights_cuda");
+
+    const auto norm_id_in = thrust::make_zip_iterator(
+        thrust::make_tuple(d_forward_id_ptr, d_backward_id_ptr));
+    thrust::transform(
+        DEVICE_EXECUTION_POLICY,
+        norm_id_in,
+        norm_id_in + static_cast<long>(num_groups),
+        norm_id_in,
+        [forward_id_sum, backward_id_sum] HOST DEVICE (
+            const thrust::tuple<double, double>& w) {
+            return thrust::make_tuple(
+                thrust::get<0>(w) / forward_id_sum,
+                thrust::get<1>(w) / backward_id_sum);
+        }
+    );
+    CUDA_KERNEL_CHECK("After thrust transform inverse-degree normalization in update_temporal_weights_cuda");
+
+    cub_inclusive_sum(
+        d_forward_id_ptr,
+        data.forward_cumulative_weights_inverse_degree.data(),
+        num_groups);
+    cub_inclusive_sum(
+        d_backward_id_ptr,
+        data.backward_cumulative_weights_inverse_degree.data(),
+        num_groups);
+    CUDA_KERNEL_CHECK("After cub inclusive_sum inverse-degree weights in update_temporal_weights_cuda");
 }
 
 #endif
@@ -901,6 +1082,8 @@ HOST size_t edge_data::get_memory_used(const TemporalGraphData& data) {
 
     total_memory += data.forward_cumulative_weights_exponential.size() * sizeof(double);
     total_memory += data.backward_cumulative_weights_exponential.size() * sizeof(double);
+    total_memory += data.forward_cumulative_weights_inverse_degree.size() * sizeof(double);
+    total_memory += data.backward_cumulative_weights_inverse_degree.size() * sizeof(double);
 
     return total_memory;
 }

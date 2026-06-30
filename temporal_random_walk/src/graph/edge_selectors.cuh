@@ -184,6 +184,24 @@ namespace temporal_graph {
         const size_t num_groups = view.num_groups;
         if (num_groups == 0) return InternalEdge{-1, -1, -1, -1};
 
+        // ExponentialWeightInverseDegree reuses the same weighted-ITS machinery
+        // as ExponentialWeight but reads the degree-discounted cumulative arrays.
+        const double* fwd_cum;
+        size_t        fwd_cum_size;
+        const double* bwd_cum;
+        size_t        bwd_cum_size;
+        if constexpr (PickerType == RandomPickerType::ExponentialWeightInverseDegree) {
+            fwd_cum      = view.forward_cumulative_weights_inverse_degree;
+            fwd_cum_size = view.forward_cumulative_weights_inverse_degree_size;
+            bwd_cum      = view.backward_cumulative_weights_inverse_degree;
+            bwd_cum_size = view.backward_cumulative_weights_inverse_degree_size;
+        } else {
+            fwd_cum      = view.forward_cumulative_weights_exponential;
+            fwd_cum_size = view.forward_cumulative_weights_exponential_size;
+            bwd_cum      = view.backward_cumulative_weights_exponential;
+            bwd_cum_size = view.backward_cumulative_weights_exponential_size;
+        }
+
         long group_idx;
         if (timestamp != -1) {
             if constexpr (Forward) {
@@ -202,8 +220,7 @@ namespace temporal_graph {
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.forward_cumulative_weights_exponential,
-                        view.forward_cumulative_weights_exponential_size,
+                        fwd_cum, fwd_cum_size,
                         first_group, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -223,8 +240,7 @@ namespace temporal_graph {
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.backward_cumulative_weights_exponential,
-                        view.backward_cumulative_weights_exponential_size,
+                        bwd_cum, bwd_cum_size,
                         0, last_group + 1, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -241,15 +257,13 @@ namespace temporal_graph {
                 if constexpr (Forward) {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.forward_cumulative_weights_exponential,
-                        view.forward_cumulative_weights_exponential_size,
+                        fwd_cum, fwd_cum_size,
                         0, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.backward_cumulative_weights_exponential,
-                        view.backward_cumulative_weights_exponential_size,
+                        bwd_cum, bwd_cum_size,
                         0, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -322,19 +336,37 @@ namespace temporal_graph {
                            ? view.node_group_inbound_offsets
                            : view.node_group_outbound_offsets);
 
-        const double* weights =
+        // ExponentialWeightInverseDegree reads the degree-discounted per-node
+        // cumulative arrays; every other weighted picker reads _exponential.
+        const double* weights;
+        size_t        weights_size;
+        if constexpr (PickerType == RandomPickerType::ExponentialWeightInverseDegree) {
+            weights =
+                Forward
+                    ? view.outbound_forward_cumulative_weights_inverse_degree
+                    : (IsDirected
+                           ? view.inbound_backward_cumulative_weights_inverse_degree
+                           : view.outbound_backward_cumulative_weights_inverse_degree);
+            weights_size =
+                Forward
+                    ? view.outbound_forward_cumulative_weights_inverse_degree_size
+                    : (IsDirected
+                           ? view.inbound_backward_cumulative_weights_inverse_degree_size
+                           : view.outbound_backward_cumulative_weights_inverse_degree_size);
+        } else {
+            weights =
                 Forward
                     ? view.outbound_forward_cumulative_weights_exponential
                     : (IsDirected
                            ? view.inbound_backward_cumulative_weights_exponential
                            : view.outbound_backward_cumulative_weights_exponential);
-
-        const size_t weights_size =
+            weights_size =
                 Forward
                     ? view.outbound_forward_cumulative_weights_exponential_size
                     : (IsDirected
                            ? view.inbound_backward_cumulative_weights_exponential_size
                            : view.outbound_backward_cumulative_weights_exponential_size);
+        }
 
         const size_t node_group_begin = count_ts_group_per_node[node_id];
         const size_t node_group_end = count_ts_group_per_node[node_id + 1];
@@ -487,6 +519,24 @@ namespace temporal_graph {
         const size_t num_groups = view.num_groups;
         if (num_groups == 0) return InternalEdge{-1, -1, -1, -1};
 
+        // ExponentialWeightInverseDegree reuses the same weighted-ITS machinery
+        // as ExponentialWeight but reads the degree-discounted cumulative arrays.
+        const double* fwd_cum;
+        size_t        fwd_cum_size;
+        const double* bwd_cum;
+        size_t        bwd_cum_size;
+        if constexpr (PickerType == RandomPickerType::ExponentialWeightInverseDegree) {
+            fwd_cum      = view.forward_cumulative_weights_inverse_degree;
+            fwd_cum_size = view.forward_cumulative_weights_inverse_degree_size;
+            bwd_cum      = view.backward_cumulative_weights_inverse_degree;
+            bwd_cum_size = view.backward_cumulative_weights_inverse_degree_size;
+        } else {
+            fwd_cum      = view.forward_cumulative_weights_exponential;
+            fwd_cum_size = view.forward_cumulative_weights_exponential_size;
+            bwd_cum      = view.backward_cumulative_weights_exponential;
+            bwd_cum_size = view.backward_cumulative_weights_exponential_size;
+        }
+
         long group_idx;
         if (timestamp != -1) {
             if constexpr (Forward) {
@@ -505,8 +555,7 @@ namespace temporal_graph {
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.forward_cumulative_weights_exponential,
-                        view.forward_cumulative_weights_exponential_size,
+                        fwd_cum, fwd_cum_size,
                         first_group, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -526,8 +575,7 @@ namespace temporal_graph {
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.backward_cumulative_weights_exponential,
-                        view.backward_cumulative_weights_exponential_size,
+                        bwd_cum, bwd_cum_size,
                         0, last_group + 1, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -544,15 +592,13 @@ namespace temporal_graph {
                 if constexpr (Forward) {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.forward_cumulative_weights_exponential,
-                        view.forward_cumulative_weights_exponential_size,
+                        fwd_cum, fwd_cum_size,
                         0, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 } else {
                     group_idx = random_pickers::pick_using_weight_based_picker(
                         PickerType,
-                        view.backward_cumulative_weights_exponential,
-                        view.backward_cumulative_weights_exponential_size,
+                        bwd_cum, bwd_cum_size,
                         0, num_groups, group_selector_rand_num);
                     if (group_idx == -1) return InternalEdge{-1, -1, -1, -1};
                 }
@@ -625,19 +671,37 @@ namespace temporal_graph {
                            ? view.node_group_inbound_offsets
                            : view.node_group_outbound_offsets);
 
-        const double* weights =
+        // ExponentialWeightInverseDegree reads the degree-discounted per-node
+        // cumulative arrays; every other weighted picker reads _exponential.
+        const double* weights;
+        size_t        weights_size;
+        if constexpr (PickerType == RandomPickerType::ExponentialWeightInverseDegree) {
+            weights =
+                Forward
+                    ? view.outbound_forward_cumulative_weights_inverse_degree
+                    : (IsDirected
+                           ? view.inbound_backward_cumulative_weights_inverse_degree
+                           : view.outbound_backward_cumulative_weights_inverse_degree);
+            weights_size =
+                Forward
+                    ? view.outbound_forward_cumulative_weights_inverse_degree_size
+                    : (IsDirected
+                           ? view.inbound_backward_cumulative_weights_inverse_degree_size
+                           : view.outbound_backward_cumulative_weights_inverse_degree_size);
+        } else {
+            weights =
                 Forward
                     ? view.outbound_forward_cumulative_weights_exponential
                     : (IsDirected
                            ? view.inbound_backward_cumulative_weights_exponential
                            : view.outbound_backward_cumulative_weights_exponential);
-
-        const size_t weights_size =
+            weights_size =
                 Forward
                     ? view.outbound_forward_cumulative_weights_exponential_size
                     : (IsDirected
                            ? view.inbound_backward_cumulative_weights_exponential_size
                            : view.outbound_backward_cumulative_weights_exponential_size);
+        }
 
         const size_t node_group_begin = count_ts_group_per_node[node_id];
         const size_t node_group_end = count_ts_group_per_node[node_id + 1];

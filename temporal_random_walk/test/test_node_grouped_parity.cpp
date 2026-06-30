@@ -36,6 +36,7 @@ inline const char* picker_name(const RandomPickerType p) {
         case RandomPickerType::Uniform:           return "Uniform";
         case RandomPickerType::ExponentialIndex:  return "ExponentialIndex";
         case RandomPickerType::ExponentialWeight: return "ExponentialWeight";
+        case RandomPickerType::ExponentialWeightInverseDegree: return "ExponentialWeightInverseDegree";
         case RandomPickerType::TemporalNode2Vec:  return "TemporalNode2Vec";
         default:                                  return "?";
     }
@@ -43,6 +44,7 @@ inline const char* picker_name(const RandomPickerType p) {
 
 inline bool picker_needs_weights(const RandomPickerType p) {
     return p == RandomPickerType::ExponentialWeight ||
+           p == RandomPickerType::ExponentialWeightInverseDegree ||
            p == RandomPickerType::TemporalNode2Vec;
 }
 

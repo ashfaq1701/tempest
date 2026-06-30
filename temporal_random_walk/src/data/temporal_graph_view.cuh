@@ -33,6 +33,11 @@ struct TemporalGraphView {
     const double*  backward_cumulative_weights_exponential;
     size_t         backward_cumulative_weights_exponential_size;
 
+    const double*  forward_cumulative_weights_inverse_degree;
+    size_t         forward_cumulative_weights_inverse_degree_size;
+    const double*  backward_cumulative_weights_inverse_degree;
+    size_t         backward_cumulative_weights_inverse_degree_size;
+
     const size_t*  node_adj_offsets;
     size_t         node_adj_offsets_size;
     const int*     node_adj_neighbors;
@@ -58,6 +63,13 @@ struct TemporalGraphView {
     size_t         outbound_backward_cumulative_weights_exponential_size;
     const double*  inbound_backward_cumulative_weights_exponential;
     size_t         inbound_backward_cumulative_weights_exponential_size;
+
+    const double*  outbound_forward_cumulative_weights_inverse_degree;
+    size_t         outbound_forward_cumulative_weights_inverse_degree_size;
+    const double*  outbound_backward_cumulative_weights_inverse_degree;
+    size_t         outbound_backward_cumulative_weights_inverse_degree_size;
+    const double*  inbound_backward_cumulative_weights_inverse_degree;
+    size_t         inbound_backward_cumulative_weights_inverse_degree_size;
 };
 
 // view aliases into data; invalid if data is mutated or destroyed.
@@ -92,6 +104,15 @@ HOST inline TemporalGraphView make_temporal_graph_view(
     v.backward_cumulative_weights_exponential_size =
         data.backward_cumulative_weights_exponential.size();
 
+    v.forward_cumulative_weights_inverse_degree =
+        data.forward_cumulative_weights_inverse_degree.data();
+    v.forward_cumulative_weights_inverse_degree_size =
+        data.forward_cumulative_weights_inverse_degree.size();
+    v.backward_cumulative_weights_inverse_degree =
+        data.backward_cumulative_weights_inverse_degree.data();
+    v.backward_cumulative_weights_inverse_degree_size =
+        data.backward_cumulative_weights_inverse_degree.size();
+
     v.node_adj_offsets        = data.node_adj_offsets.data();
     v.node_adj_offsets_size   = data.node_adj_offsets.size();
     v.node_adj_neighbors      = data.node_adj_neighbors.data();
@@ -125,6 +146,19 @@ HOST inline TemporalGraphView make_temporal_graph_view(
         data.inbound_backward_cumulative_weights_exponential.data();
     v.inbound_backward_cumulative_weights_exponential_size =
         data.inbound_backward_cumulative_weights_exponential.size();
+
+    v.outbound_forward_cumulative_weights_inverse_degree =
+        data.outbound_forward_cumulative_weights_inverse_degree.data();
+    v.outbound_forward_cumulative_weights_inverse_degree_size =
+        data.outbound_forward_cumulative_weights_inverse_degree.size();
+    v.outbound_backward_cumulative_weights_inverse_degree =
+        data.outbound_backward_cumulative_weights_inverse_degree.data();
+    v.outbound_backward_cumulative_weights_inverse_degree_size =
+        data.outbound_backward_cumulative_weights_inverse_degree.size();
+    v.inbound_backward_cumulative_weights_inverse_degree =
+        data.inbound_backward_cumulative_weights_inverse_degree.data();
+    v.inbound_backward_cumulative_weights_inverse_degree_size =
+        data.inbound_backward_cumulative_weights_inverse_degree.size();
 
     return v;
 }
