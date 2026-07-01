@@ -18,10 +18,10 @@ cmake -S . -B "${BUILD_DIR}" \
     -DPython3_EXECUTABLE="$(command -v python)"
 
 # Build
-cmake --build "${BUILD_DIR}" --target test_temporal_random_walk --parallel
+cmake --build "${BUILD_DIR}" --target test_tempest --parallel
 
 # Run C++ tests
-"${BUILD_DIR}/temporal_random_walk/test/test_temporal_random_walk"
+"${BUILD_DIR}/tempest/test/test_tempest"
 
 # Install Python package (project-specific, not cached)
 CMAKE_ARGS="-DHAS_CUDA=OFF" python -m pip install .

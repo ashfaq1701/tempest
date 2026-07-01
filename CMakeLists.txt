@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(temporal_random_walk)
+project(tempest)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
 set(CMAKE_CXX_STANDARD 17)
@@ -93,19 +93,19 @@ if(APPLE)
 endif()
 
 set(SRC_FILES
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/data/buffer.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/data/walk_set/walk_set_device.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/data/walk_set/walk_set_host.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/data/buffer.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/data/walk_set/walk_set_device.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/data/walk_set/walk_set_host.cu
 
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/graph/edge_data.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/graph/node_edge_index.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/graph/node_features.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/graph/temporal_graph.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/core/temporal_random_walk.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/core/node_grouped/scheduler.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/graph/edge_data.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/graph/node_edge_index.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/graph/node_features.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/graph/temporal_graph.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/core/tempest.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/core/node_grouped/scheduler.cu
 
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/proxies/RandomPicker.cu
-        ${CMAKE_SOURCE_DIR}/temporal_random_walk/src/proxies/TemporalRandomWalk.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/proxies/RandomPicker.cu
+        ${CMAKE_SOURCE_DIR}/tempest/src/proxies/Tempest.cu
 )
 
 if(HAS_CUDA AND CMAKE_CUDA_COMPILER)
@@ -134,9 +134,9 @@ endif()
 
 option(BUILD_TESTS "Build C++ tests" ON)
 
-add_subdirectory(temporal_random_walk/py_interface)
+add_subdirectory(tempest/py_interface)
 
 if(BUILD_TESTS)
-    add_subdirectory(temporal_random_walk/test)
-    add_subdirectory(temporal_random_walk/test_run)
+    add_subdirectory(tempest/test)
+    add_subdirectory(tempest/test_run)
 endif()

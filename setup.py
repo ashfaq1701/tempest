@@ -10,7 +10,7 @@ def find_cmake():
     try:
         subprocess.check_output(['cmake', '--version'])
     except subprocess.CalledProcessError:
-        raise RuntimeError("CMake must be installed to build the following extensions: _temporal_random_walk")
+        raise RuntimeError("CMake must be installed to build the following extensions: _tempest")
 
 
 class CMakeExtension(Extension):
@@ -131,7 +131,7 @@ def read_version_number():
 
 
 setup(
-    name="temporal_random_walk",
+    name="tempest-rw",
     version=read_version_number(),
     author="Ashfaq Salehin",
     author_email="ashfaq.salehin1701@gmail.com",
@@ -139,12 +139,12 @@ setup(
     long_description=open('README.md').read(),
     packages=find_packages(),
     package_data={
-        'temporal_random_walk': ['*.so'],
+        'tempest': ['*.so'],
     },
     include_package_data=True,
     long_description_content_type="text/markdown",
-    url="https://github.com/ashfaq1701/temporal-random-walk",
-    ext_modules=[CMakeExtension('_temporal_random_walk')],
+    url="https://github.com/ashfaq1701/tempest",
+    ext_modules=[CMakeExtension('_tempest')],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
     python_requires=">=3.9",
