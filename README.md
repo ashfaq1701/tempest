@@ -1,8 +1,8 @@
 # 🚀 Tempest
 
 [![Build Passing](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml/badge.svg?branch=master)](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml)
-[![PyPI Latest Release](https://img.shields.io/pypi/v/tempest.svg)](https://pypi.org/project/tempest/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/tempest.svg)](https://pypi.org/project/tempest/)
+[![PyPI Latest Release](https://img.shields.io/pypi/v/tempest-rw.svg)](https://pypi.org/project/tempest-rw/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/tempest-rw.svg)](https://pypi.org/project/tempest-rw/)
 
 **A high-performance temporal random walk sampler for dynamic networks with GPU acceleration. Built for scale.**
 
