@@ -14,6 +14,10 @@ jobs:
   cpu-tests:
     runs-on: ubuntu-latest
 
+    permissions:
+      packages: write
+      contents: read
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -21,8 +25,19 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Pull prebuilt CI image
-        run: docker pull ghcr.io/${{ github.repository }}/ci:latest
+      - name: Pull prebuilt CI image (build and push if missing)
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}/ci:latest"
+          if docker pull "${IMAGE}"; then
+            echo "Pulled prebuilt CI image."
+          else
+            echo "Prebuilt CI image not found at ${IMAGE}; building it now."
+            docker build -f ci/Dockerfile -t "${IMAGE}" .
+            # Publish so subsequent runs pull the cached image. A push failure
+            # (e.g. from a fork PR without package write access) is non-fatal —
+            # the locally built image is still used for this run.
+            docker push "${IMAGE}" || echo "Push failed; using locally built image for this run only."
+          fi
 
       - name: Run C++ and pytest suites in CPU container
         run: |
