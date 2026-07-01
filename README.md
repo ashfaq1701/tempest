@@ -1,14 +1,14 @@
-# 🚀 Temporal Random Walk
+# 🚀 Tempest
 
-[![Build Passing](https://github.com/ashfaq1701/temporal-random-walk/actions/workflows/cpu-tests.yml/badge.svg?branch=master)](https://github.com/ashfaq1701/temporal-random-walk/actions/workflows/cpu-tests.yml)
-[![PyPI Latest Release](https://img.shields.io/pypi/v/temporal-random-walk.svg)](https://pypi.org/project/temporal-random-walk/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/temporal-random-walk.svg)](https://pypi.org/project/temporal-random-walk/)
+[![Build Passing](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml/badge.svg?branch=master)](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml)
+[![PyPI Latest Release](https://img.shields.io/pypi/v/tempest.svg)](https://pypi.org/project/tempest/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/tempest.svg)](https://pypi.org/project/tempest/)
 
 **A high-performance temporal random walk sampler for dynamic networks with GPU acceleration. Built for scale.**
 
 ---
 
-## 🔥 Why Temporal Random Walk?
+## 🔥 Why Tempest?
 ✅ **Performance First** – GPU-accelerated sampling for massive networks<br>
 ✅ **Memory Efficient** – Smart memory management for large graphs  
 ✅ **Flexible Integration** – Easy Python bindings with **NumPy/NetworkX** support  
@@ -20,10 +20,10 @@
 ## ⚡ Quick Start
 
 ```python
-from temporal_random_walk import TemporalRandomWalk
+from tempest import Tempest
 
 # Create a directed temporal graph
-walker = TemporalRandomWalk(is_directed=True, use_gpu=True, max_time_capacity=-1)
+walker = Tempest(is_directed=True, use_gpu=True, max_time_capacity=-1)
 
 # Add edges - can be numpy arrays or python lists
 sources = [3, 2, 0, 3, 3, 1]
@@ -62,9 +62,9 @@ If your edges carry attributes (weights, embeddings, types, etc.), you can pass 
 
 ```python
 import numpy as np
-from temporal_random_walk import TemporalRandomWalk
+from tempest import Tempest
 
-walker = TemporalRandomWalk(is_directed=True, use_gpu=False)
+walker = Tempest(is_directed=True, use_gpu=False)
 
 sources = np.array([0, 0, 1], dtype=np.int32)
 targets = np.array([1, 2, 2], dtype=np.int32)
@@ -125,7 +125,7 @@ to populate features for specific nodes, then `get_node_features()` to retrieve 
 ### GPU (default) — Linux with NVIDIA driver
 
 ```sh
-pip install temporal-random-walk
+pip install tempest-rw
 ```
 
 This pulls the manylinux wheel plus the two NVIDIA CUDA runtime
@@ -141,7 +141,7 @@ source; the CMake config detects the absence of `nvcc` and compiles
 a CPU-only extension:
 
 ```sh
-pip install --no-binary temporal-random-walk temporal-random-walk
+pip install --no-binary tempest-rw tempest-rw
 ```
 
 You'll need a C++17 compiler, CMake, and OpenMP/TBB installed
@@ -149,8 +149,8 @@ You'll need a C++17 compiler, CMake, and OpenMP/TBB installed
 
 ## 📖 Documentation
 
-📌 **[C++ Documentation →](https://htmlpreview.github.io/?https://github.com/ashfaq1701/temporal-random-walk/blob/master/docs/html/TemporalRandomWalk_8cuh_source.html)**<br>
-📌 **[Python Interface Documentation →](docs/_temporal_random_walk.md)**
+📌 **[C++ Documentation →](https://htmlpreview.github.io/?https://github.com/ashfaq1701/tempest/blob/master/docs/html/Tempest_8cuh_source.html)**<br>
+📌 **[Python Interface Documentation →](docs/_tempest.md)**
 
 ---
 

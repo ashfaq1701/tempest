@@ -1,14 +1,14 @@
 import numpy as np
 import pytest
 
-from temporal_random_walk import TemporalRandomWalk
+from tempest import Tempest
 
 
 GPU_USAGE_MODE = False
 
 
 def _base_graph_with_edge_features():
-    tw = TemporalRandomWalk(is_directed=True, use_gpu=GPU_USAGE_MODE)
+    tw = Tempest(is_directed=True, use_gpu=GPU_USAGE_MODE)
 
     sources = np.array([0, 1, 2], dtype=np.int32)
     targets = np.array([1, 2, 3], dtype=np.int32)
@@ -69,7 +69,7 @@ def test_walks_include_edge_features_and_zero_unused_slots():
 
 
 def test_walks_return_none_when_edge_features_are_not_provided():
-    tw = TemporalRandomWalk(is_directed=True, use_gpu=GPU_USAGE_MODE)
+    tw = Tempest(is_directed=True, use_gpu=GPU_USAGE_MODE)
     tw.add_multiple_edges(
         np.array([0, 1], dtype=np.int32),
         np.array([1, 2], dtype=np.int32),

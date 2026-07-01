@@ -1,4 +1,4 @@
-digraph "temporal_random_walk/src"
+digraph "tempest/src"
 {
  // LATEX_PDF_SIZE
   bgcolor="transparent";
@@ -6,7 +6,7 @@ digraph "temporal_random_walk/src"
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   compound=true
   subgraph clusterdir_11e3513d4656415d8a8e2605e11d0cad {
-    graph [ bgcolor="#edf0f7", pencolor="grey25", label="temporal_random_walk", fontname=Helvetica,fontsize=10 style="filled,dashed", URL="dir_11e3513d4656415d8a8e2605e11d0cad.html",tooltip=""]
+    graph [ bgcolor="#edf0f7", pencolor="grey25", label="tempest", fontname=Helvetica,fontsize=10 style="filled,dashed", URL="dir_11e3513d4656415d8a8e2605e11d0cad.html",tooltip=""]
   subgraph clusterdir_2cb6c84061b19065b8f56ff881d3ea1c {
     graph [ bgcolor="#edf0f7", pencolor="grey25", label="", fontname=Helvetica,fontsize=10 style="filled,bold", URL="dir_2cb6c84061b19065b8f56ff881d3ea1c.html",tooltip=""]
     dir_2cb6c84061b19065b8f56ff881d3ea1c [shape=plaintext, label="src"];

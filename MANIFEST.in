@@ -1,2 +1,2 @@
 include README.md
-include temporal_random_walk/*.so
+include tempest/*.so

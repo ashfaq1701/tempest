@@ -1,4 +1,4 @@
-digraph "temporal_random_walk/src/proxies"
+digraph "tempest/src/proxies"
 {
  // LATEX_PDF_SIZE
   bgcolor="transparent";

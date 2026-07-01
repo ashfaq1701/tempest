@@ -4,7 +4,7 @@
 # -DCMAKE_C_FLAGS="-fsanitize=address -g -O1"
 # -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
 
-compute-sanitizer --tool memcheck cmake-build-debug/bin/test_run_temporal_random_walk_2
+compute-sanitizer --tool memcheck cmake-build-debug/bin/test_run_tempest_2
 
 pip install -r requirements.txt
 python setup.py bdist_wheel
@@ -21,8 +21,8 @@ twine upload wheelhouse/*
 
 #Doc generation command
 doxygen
-python -m pdoc _temporal_random_walk -o docs --force
+python -m pdoc _tempest -o docs --force
 
 
 # Nsight Compute
-sudo /usr/local/cuda/bin/ncu --export report-ncp.rep cmake-build-debug/bin/test_run_temporal_random_walk_2 data/sx-stackoverflow.csv
+sudo /usr/local/cuda/bin/ncu --export report-ncp.rep cmake-build-debug/bin/test_run_tempest_2 data/sx-stackoverflow.csv

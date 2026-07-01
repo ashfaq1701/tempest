@@ -149,13 +149,13 @@ def main() -> int:
 
     variants = [
         Variant("v0_fullwalk_index_inkernel", "in-kernel RNG + full_walk + index (exponential_index)",
-                "temporal-random-walk/build/bin/ablation_streaming", "exponential_index", "full_walk"),
+                "tempest/build/bin/ablation_streaming", "exponential_index", "full_walk"),
         Variant("v1_fullwalk_index_pregen", "pregenerated RNG + full_walk + index (exponential_index)",
-                "temporal-random-walk-pregenerated-rng/build/bin/ablation_streaming", "exponential_index", "full_walk"),
+                "tempest-pregenerated-rng/build/bin/ablation_streaming", "exponential_index", "full_walk"),
         Variant("v2_step_index_inkernel", "in-kernel RNG + step_based + index (exponential_index)",
-                "temporal-random-walk/build/bin/ablation_streaming", "exponential_index", "step_based"),
+                "tempest/build/bin/ablation_streaming", "exponential_index", "step_based"),
         Variant("v3_fullwalk_weight_inkernel", "in-kernel RNG + full_walk + weight (exponential_weight)",
-                "temporal-random-walk/build/bin/ablation_streaming", "exponential_weight", "full_walk"),
+                "tempest/build/bin/ablation_streaming", "exponential_weight", "full_walk"),
     ]
 
     metrics_by_variant = {v.key: {k: [] for k in SUMMARY_PATTERNS} for v in variants}
