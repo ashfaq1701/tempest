@@ -154,12 +154,6 @@ You'll need a C++17 compiler, CMake, and OpenMP/TBB installed
 
 ---
 
-## 📚 Inspired By
-
-**Nguyen, Giang Hoang, et al.**  
-*"Continuous-Time Dynamic Network Embeddings."*  
-*Companion Proceedings of The Web Conference 2018.*
-
 ## 👨‍🔬 Built by [Packets Research Lab](https://packets-lab.github.io/)
 
 🚀 **Contributions welcome!** Open a PR or issue if you have suggestions.  
