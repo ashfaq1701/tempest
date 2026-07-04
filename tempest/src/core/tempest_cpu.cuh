@@ -69,12 +69,19 @@ namespace tempest {
         const int start_dst = start_edge.i;
         const int64_t start_ts = start_edge.ts;
 
+        // prev_node seeds from the walk's first node (slot 0), so the first
+        // node2vec transition (slot 1 -> slot 2) is biased by slot 0 — matching
+        // the NODE_GROUPED solo/coop paths, which read prev from walk history.
+        // Leaving it at -1 would skip the beta term on that first hop entirely.
+        // (No effect for non-node2vec pickers, which ignore prev_node.)
         if constexpr (IsDirected) {
             if constexpr (Forward) {
                 walk_set.add_hop(walk_idx, start_src, current_timestamp);
+                prev_node = start_src;
                 current_node = start_dst;
             } else {
                 walk_set.add_hop(walk_idx, start_dst, current_timestamp);
+                prev_node = start_dst;
                 current_node = start_src;
             }
         } else {
@@ -83,6 +90,7 @@ namespace tempest {
                                         : pick_random_number(start_src, start_dst,
                                                              rand_nums[rand_nums_start_idx_for_walk + 2]);
             walk_set.add_hop(walk_idx, picked_node, current_timestamp);
+            prev_node = picked_node;
             current_node = pick_other_number(start_src, start_dst, picked_node);
         }
 
