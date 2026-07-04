@@ -95,19 +95,16 @@ __global__ void node_grouped_warp_smem_kernel(
         const double r_group = draw_u01_philox(rng);
         const double r_edge  = draw_u01_philox(rng);
 
-        const long local_pos = temporal_graph::find_group_pos_slice<Forward, EdgePickerType>(
-            s_group_offsets, s_first_ts,
-            /*node_ts_sorted_indices=*/nullptr,
-            /*view_timestamps=*/nullptr,
-            ptrs.weights, ptrs.weights_size,
-            node_group_begin, G, last_ts, cutoff, r_group,
-            /*s_cum_weights=*/s_cum_weights);
-        if (local_pos == -1) continue;
-
-        sample_edge_and_add_hop<IsDirected, Forward>(
+        coop_pick_and_add_hop<IsDirected, Forward, EdgePickerType>(
             view, walk_set, ptrs,
-            s_group_offsets, local_pos, G, node_edge_end, node_id,
-            walk_idx, r_edge);
+            /*group_offsets=*/s_group_offsets,
+            /*first_ts=*/s_first_ts,
+            /*sorted_indices=*/nullptr,
+            /*view_timestamps=*/nullptr,
+            /*s_cum_weights=*/s_cum_weights,
+            node_id, node_group_begin, node_group_end, G, node_edge_end,
+            walk_idx, step_number, max_walk_len, last_ts, cutoff,
+            r_group, r_edge);
     }
 }
 
@@ -205,18 +202,16 @@ __global__ void node_grouped_warp_global_kernel(
         const double r_group = draw_u01_philox(rng);
         const double r_edge  = draw_u01_philox(rng);
 
-        const long local_pos = temporal_graph::find_group_pos_slice<Forward, EdgePickerType>(
-            group_offsets_slice,
-            /*first_ts=*/nullptr,
-            ptrs.node_ts_sorted_indices, view.timestamps,
-            ptrs.weights, ptrs.weights_size,
-            node_group_begin, G, last_ts, cutoff, r_group);
-        if (local_pos == -1) continue;
-
-        sample_edge_and_add_hop<IsDirected, Forward>(
+        coop_pick_and_add_hop<IsDirected, Forward, EdgePickerType>(
             view, walk_set, ptrs,
-            group_offsets_slice, local_pos, G, node_edge_end, node_id,
-            walk_idx, r_edge);
+            /*group_offsets=*/group_offsets_slice,
+            /*first_ts=*/nullptr,
+            /*sorted_indices=*/ptrs.node_ts_sorted_indices,
+            /*view_timestamps=*/view.timestamps,
+            /*s_cum_weights=*/nullptr,
+            node_id, node_group_begin, node_group_end, G, node_edge_end,
+            walk_idx, step_number, max_walk_len, last_ts, cutoff,
+            r_group, r_edge);
     }
 }
 
