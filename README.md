@@ -154,6 +154,26 @@ You'll need a C++17 compiler, CMake, and OpenMP/TBB installed
 
 ---
 
+## 📚 Citation
+
+If you use Tempest in your research, please cite:
+
+> Md Ashfaq Salehin, George Parisis, and Luc Berthouze. 2026. **Tempest: A GPU-Accelerated Engine for Streaming Temporal Random Walks**. In *Proceedings of the 55th International Conference on Parallel Processing (ICPP '26)*, Singapore.
+
+```bibtex
+@inproceedings{salehin2026tempest,
+  title     = {Tempest: A GPU-Accelerated Engine for Streaming Temporal Random Walks},
+  author    = {Salehin, Md Ashfaq and Parisis, George and Berthouze, Luc},
+  booktitle = {Proceedings of the 55th International Conference on Parallel Processing (ICPP '26)},
+  address   = {Singapore},
+  year      = {2026},
+  publisher = {Association for Computing Machinery},
+  doi       = {10.1145/XXXXXXX.XXXXXXX}
+}
+```
+
+---
+
 ## 👨‍🔬 Built by [Packets Research Lab](https://packets-lab.github.io/)
 
 🚀 **Contributions welcome!** Open a PR or issue if you have suggestions.  
