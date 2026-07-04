@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <vector>
 
 #include "../src/core/tempest.cuh"
@@ -246,6 +247,71 @@ TYPED_TEST(TemporalNode2VecTest, BackwardDistributionFollowsPQBias) {
     EXPECT_NEAR(frac_p, EXPECTED_P, TOLERANCE);
     EXPECT_NEAR(frac_n, EXPECTED_N, TOLERANCE);
     EXPECT_NEAR(frac_f, EXPECTED_F, TOLERANCE);
+}
+
+// ---------------------------------------------------------------------------
+// END-TO-END: the beta bias must reach a real MULTI-HOP walk generated through
+// the public walk API (get_random_walks_and_times_for_nodes, NODE_GROUPED) — not
+// only the picker driven with a hard-coded prev_node. Every test above supplies
+// prev_node explicitly, so none of them can catch a break in prev_node threading
+// through the cooperative walk scheduler.
+//
+// Graph:  P --10--> V ,  V --20--> P ,  V --20--> X.
+// A walk seeded at P is forced to hop P->V (hop 1), then at V (prev = P) it must
+// choose between RETURNING to P (beta = 1/p) and going to X (beta = 1/q). The two
+// candidate edges share a timestamp, so the ExponentialWeight proposal is uniform
+// over {P, X} and beta is the only differentiator. Analytic return fraction
+// (1/p)/(1/p + 1/q):  p=0.25,q=1 -> 0.80 ;  p=4,q=1 -> 0.20.  If prev_node never
+// reaches the picker, both collapse to the ~0.5 proposal and this fails.
+TYPED_TEST(TemporalNode2VecTest, WalkDistributionFollowsPBiasEndToEnd) {
+    constexpr bool use_gpu   = TypeParam::value;
+    constexpr int  P0        = 0;   // seed / prev
+    constexpr int  V0        = 1;
+    constexpr int  X0        = 2;
+    constexpr int  MWL       = 3;   // seed, hop1 (V), hop2 (node2vec step, prev = P)
+    constexpr int  NUM_WALKS = 8000;
+
+    auto return_fraction = [&](const double p, const double q, const bool is_directed) -> double {
+        core::Tempest g{
+            is_directed, use_gpu, /*max_time_capacity=*/-1,
+            /*enable_weight_computation=*/true, /*enable_temporal_node2vec=*/true,
+            /*timescale_bound=*/-1, /*node2vec_p=*/p, /*node2vec_q=*/q};
+        test_util::add_edges(g, {Edge{P0, V0, 10}, Edge{V0, P0, 20}, Edge{V0, X0, 20}});
+
+        const RandomPickerType walk_bias = RandomPickerType::TemporalNode2Vec;
+        const RandomPickerType init_bias = RandomPickerType::ExponentialWeight;
+        const int seeds[1] = {P0};
+        const auto res = g.get_random_walks_and_times_for_nodes(
+            seeds, /*num_seed_nodes=*/1, /*cutoff_times=*/nullptr,
+            MWL, &walk_bias, NUM_WALKS, &init_bias,
+            WalkDirection::Forward_In_Time, KernelLaunchType::NODE_GROUPED);
+
+        const auto&        ws    = res.walk_set;
+        const int*         nodes = ws.nodes_ptr();
+        const std::size_t* lens  = ws.walk_lens_ptr();
+        long ret = 0, valid = 0;
+        for (std::size_t w = 0; w < ws.num_walks(); ++w) {
+            if (lens[w] < 3) continue;                 // need a hop-2 node
+            ++valid;
+            if (nodes[w * static_cast<std::size_t>(MWL) + 2] == P0) ++ret;
+        }
+        return valid > 0 ? static_cast<double>(ret) / static_cast<double>(valid) : -1.0;
+    };
+
+    for (const bool is_directed : {true, false}) {
+        const double ret_lo = return_fraction(/*p=*/0.25, /*q=*/1.0, is_directed);  // 1/p=4 -> high return
+        const double ret_hi = return_fraction(/*p=*/4.0,  /*q=*/1.0, is_directed);  // 1/p=.25 -> low return
+        ASSERT_GE(ret_lo, 0.0) << "no valid hop-2 walks (p=0.25)";
+        ASSERT_GE(ret_hi, 0.0) << "no valid hop-2 walks (p=4)";
+
+        const char* tag = is_directed ? "directed" : "undirected";
+        EXPECT_GT(ret_lo - ret_hi, 0.30)
+            << tag << ": node2vec p had ~no effect on the multi-hop walk (p=0.25 return="
+            << ret_lo << ", p=4 return=" << ret_hi << ") -> prev_node is not threaded "
+               "through the NODE_GROUPED walk path.";
+        EXPECT_GT(ret_lo, 0.60) << tag << ": expected ~0.80 return at p=0.25, got " << ret_lo;
+        EXPECT_LT(ret_hi, 0.40) << tag << ": expected ~0.20 return at p=4, got "    << ret_hi;
+    }
 }
 
 } // namespace
