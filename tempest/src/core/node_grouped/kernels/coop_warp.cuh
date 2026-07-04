@@ -97,11 +97,7 @@ __global__ void node_grouped_warp_smem_kernel(
 
         coop_pick_and_add_hop<IsDirected, Forward, EdgePickerType>(
             view, walk_set, ptrs,
-            /*group_offsets=*/s_group_offsets,
-            /*first_ts=*/s_first_ts,
-            /*sorted_indices=*/nullptr,
-            /*view_timestamps=*/nullptr,
-            /*s_cum_weights=*/s_cum_weights,
+            GroupSource::smem(s_group_offsets, s_first_ts, s_cum_weights),
             node_id, node_group_begin, node_group_end, G, node_edge_end,
             walk_idx, step_number, max_walk_len, last_ts, cutoff,
             r_group, r_edge);
@@ -204,11 +200,8 @@ __global__ void node_grouped_warp_global_kernel(
 
         coop_pick_and_add_hop<IsDirected, Forward, EdgePickerType>(
             view, walk_set, ptrs,
-            /*group_offsets=*/group_offsets_slice,
-            /*first_ts=*/nullptr,
-            /*sorted_indices=*/ptrs.node_ts_sorted_indices,
-            /*view_timestamps=*/view.timestamps,
-            /*s_cum_weights=*/nullptr,
+            GroupSource::global(group_offsets_slice,
+                                ptrs.node_ts_sorted_indices, view.timestamps),
             node_id, node_group_begin, node_group_end, G, node_edge_end,
             walk_idx, step_number, max_walk_len, last_ts, cutoff,
             r_group, r_edge);

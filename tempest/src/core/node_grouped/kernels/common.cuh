@@ -26,6 +26,37 @@ struct NodeDirPtrs {
     size_t        weights_size;
 };
 
+// How a coop kernel reads a group's first timestamp (and cum-weights) during
+// group selection. Two modes; use the factories so callers never hand-null the
+// wrong fields:
+//   smem()   — cooperative kernels preloaded the slice into shared memory:
+//              per-group first_ts and (weight pickers) cum_weights are resident,
+//              so probing is a single indirect load.
+//   global() — no preload: first_ts is recovered on the fly via the
+//              sorted_indices -> timestamps double-indirect, and cum_weights are
+//              read from the global table inside the picker.
+// Unused fields are null; find_group_pos_slice / filter_valid_groups_by_
+// timestamp_slice branch on first_ts != nullptr to pick the probe form.
+struct GroupSource {
+    const size_t*  group_offsets;    // per-group offsets into sorted_indices
+    const int64_t* first_ts;         // smem: per-group first ts;  global: null
+    const size_t*  sorted_indices;   // global: node_ts_sorted_indices; smem: null
+    const int64_t* timestamps;       // global: view.timestamps;        smem: null
+    const double*  cum_weights_smem; // smem: per-group cum weights;  global: null
+
+    static DEVICE __forceinline__ GroupSource smem(
+        const size_t* group_offsets, const int64_t* first_ts,
+        const double* cum_weights_smem) {
+        return GroupSource{group_offsets, first_ts, nullptr, nullptr, cum_weights_smem};
+    }
+
+    static DEVICE __forceinline__ GroupSource global(
+        const size_t* group_offsets, const size_t* sorted_indices,
+        const int64_t* timestamps) {
+        return GroupSource{group_offsets, nullptr, sorted_indices, timestamps, nullptr};
+    }
+};
+
 template <bool IsDirected, bool Forward>
 HOST DEVICE __forceinline__ const size_t*
 count_ts_group_per_node_for_dir(const TemporalGraphView& view) {
@@ -163,11 +194,7 @@ DEVICE __forceinline__ void coop_pick_and_add_hop(
     const TemporalGraphView& view,
     WalkSetView              walk_set,
     const NodeDirPtrs&       ptrs,
-    const size_t*            group_offsets,
-    const int64_t*           first_ts,
-    const size_t*            sorted_indices,
-    const int64_t*           view_timestamps,
-    const double*            s_cum_weights,
+    const GroupSource&       groups,
     const int                node_id,
     const size_t             node_group_begin,
     const size_t             node_group_end,
@@ -192,7 +219,8 @@ DEVICE __forceinline__ void coop_pick_and_add_hop(
             int local_begin = 0;
             int local_end   = G;
             temporal_graph::filter_valid_groups_by_timestamp_slice<Forward>(
-                group_offsets, first_ts, sorted_indices, view_timestamps,
+                groups.group_offsets, groups.first_ts,
+                groups.sorted_indices, groups.timestamps,
                 G, last_ts, cutoff, local_begin, local_end);
             if (local_begin >= local_end) return;
 
@@ -221,14 +249,16 @@ DEVICE __forceinline__ void coop_pick_and_add_hop(
 
     const long local_pos =
         temporal_graph::find_group_pos_slice<Forward, EdgePickerType>(
-            group_offsets, first_ts, sorted_indices, view_timestamps,
+            groups.group_offsets, groups.first_ts,
+            groups.sorted_indices, groups.timestamps,
             ptrs.weights, ptrs.weights_size,
-            node_group_begin, G, last_ts, cutoff, r_group, s_cum_weights);
+            node_group_begin, G, last_ts, cutoff, r_group,
+            groups.cum_weights_smem);
     if (local_pos == -1) return;
 
     sample_edge_and_add_hop<IsDirected, Forward>(
         view, walk_set, ptrs,
-        group_offsets, local_pos, G, node_edge_end, node_id,
+        groups.group_offsets, local_pos, G, node_edge_end, node_id,
         walk_idx, r_edge);
 }
 
