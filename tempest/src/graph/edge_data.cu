@@ -33,9 +33,8 @@
 
 #include "../utils/omp_utils.cuh"
 
-HOST DEVICE size_t edge_data::size(const TemporalGraphData& data) {
-    return data.timestamps.size();
-}
+// edge_data::size is defined inline in edge_data.cuh (device body must be
+// visible per-TU under RDC-off builds).
 
 HOST void edge_data::set_size(TemporalGraphData& data, const size_t size) {
     data.sources.resize(size);

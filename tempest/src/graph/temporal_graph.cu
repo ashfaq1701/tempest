@@ -36,9 +36,8 @@ HOST void temporal_graph::update_temporal_weights(TemporalGraphData& data) {
     }
 }
 
-HOST DEVICE size_t temporal_graph::get_total_edges(const TemporalGraphData& data) {
-    return edge_data::size(data);
-}
+// temporal_graph::get_total_edges is defined inline in temporal_graph.cuh
+// (device body must be visible per-TU under RDC-off builds).
 
 HOST size_t temporal_graph::get_node_count(const TemporalGraphData& data) {
     return edge_data::active_node_count(data);

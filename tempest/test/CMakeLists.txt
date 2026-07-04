@@ -48,9 +48,17 @@ if(HAS_CUDA AND CMAKE_CUDA_COMPILER)
     )
 
     add_executable(test_tempest ${TEST_FILES} ${SRC_FILES})
+    # RDC is deliberately OFF. CUDA_SEPARABLE_COMPILATION ON passes -rdc=true,
+    # and combined with a multi-arch (or low-arch PTX-JIT) fatbin + CUDA 12.x
+    # thrust/CUB it makes the runtime dispatch of CUB primitives (e.g.
+    # thrust::copy_if via cub::DeviceSelect) launch a policy kernel not emitted
+    # for the running arch, failing with cudaLaunchKernel: cudaErrorInvalidValue
+    # ("copy_if failed on 2nd step: invalid argument"). Nothing here needs RDC
+    # (no cross-TU __device__ calls, no dynamic parallelism — device helpers are
+    # __forceinline__ in .cuh headers). Mirrors the py_interface fix (1d8404c);
+    # CUDA_RESOLVE_DEVICE_SYMBOLS is only meaningful with RDC on, so it is dropped.
     set_target_properties(test_tempest PROPERTIES
-            CUDA_SEPARABLE_COMPILATION ON
-            CUDA_RESOLVE_DEVICE_SYMBOLS ON
+            CUDA_SEPARABLE_COMPILATION OFF
     )
 
     target_include_directories(test_tempest PRIVATE

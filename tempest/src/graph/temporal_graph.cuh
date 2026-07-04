@@ -20,7 +20,12 @@ namespace temporal_graph {
 
     HOST void update_temporal_weights(TemporalGraphData& data);
 
-    HOST DEVICE size_t get_total_edges(const TemporalGraphData& data);
+    // Inline (not out-of-line in temporal_graph.cu): its device body calls the
+    // HOST DEVICE edge_data::size, so under RDC-off builds it must be visible
+    // per-TU or ptxas fails with "Unresolved extern function".
+    HOST DEVICE inline size_t get_total_edges(const TemporalGraphData& data) {
+        return edge_data::size(data);
+    }
 
     HOST size_t get_node_count(const TemporalGraphData& data);
 

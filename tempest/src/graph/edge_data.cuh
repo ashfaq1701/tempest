@@ -28,7 +28,14 @@
 
 namespace edge_data {
 
-    HOST DEVICE size_t size(const TemporalGraphData& data);
+    // Defined inline (not out-of-line in edge_data.cu) so its device body is
+    // visible in every TU. With RDC off (see test / py_interface CMake), a
+    // HOST DEVICE definition in one .cu cannot satisfy a device call from
+    // another (e.g. temporal_graph::get_total_edges) — ptxas would fail with
+    // "Unresolved extern function". Trivial accessor, so header-inline is free.
+    HOST DEVICE inline size_t size(const TemporalGraphData& data) {
+        return data.timestamps.size();
+    }
     HOST void set_size(TemporalGraphData& data, size_t size);
     HOST bool empty(const TemporalGraphData& data);
 

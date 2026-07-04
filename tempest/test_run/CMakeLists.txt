@@ -14,9 +14,12 @@ function(add_test_executable target_name source_file)
                 LANGUAGE CUDA
         )
 
+        # RDC OFF: -rdc=true + multi-arch/PTX-JIT fatbin + CUDA 12.x thrust/CUB
+        # makes CUB dispatch launch a wrong-arch policy kernel and fail with
+        # cudaErrorInvalidValue ("copy_if failed on 2nd step"). Nothing here
+        # needs RDC. Mirrors the py_interface fix (1d8404c).
         set_target_properties(${target_name} PROPERTIES
-                CUDA_SEPARABLE_COMPILATION ON
-                CUDA_RESOLVE_DEVICE_SYMBOLS ON
+                CUDA_SEPARABLE_COMPILATION OFF
         )
 
         set_property(TARGET ${target_name} PROPERTY
