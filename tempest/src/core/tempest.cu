@@ -13,6 +13,7 @@
 #include "../common/error_handlers.cuh"
 #include "../common/nvtx.cuh"
 #include "../graph/edge_data.cuh"
+#include "../graph/edge_selectors.cuh"
 #include "../graph/node_edge_index.cuh"
 #include "../random/pickers.cuh"
 #include "../utils/utils.cuh"
@@ -346,6 +347,133 @@ HOST std::vector<int64_t> tempest::get_node_degrees(
     const bool forward = direction == WalkDirection::Forward_In_Time;
     return temporal_graph::get_node_degrees(trw->data(), nodes, n, forward);
 }
+
+// ── Per-node cutoff-bounded queries: latest timestamp + participation count ──
+// Both run one per-node lambda over the node array (OpenMP on CPU, thrust on GPU),
+// reusing the temporal_graph:: per-node helpers over the timestamp-group CSR.
+HOST std::vector<int64_t> tempest::get_latest_timestamps_for_nodes_std(
+    const core::Tempest* trw, const int* nodes, const size_t n,
+    const int64_t* cutoff_times, const WalkDirection direction) {
+    std::vector<int64_t> result(n);
+    if (n == 0) return result;
+    const TemporalGraphView view = make_temporal_graph_view(trw->data());
+    const bool forward = direction == WalkDirection::Forward_In_Time;
+    const bool is_directed = trw->is_directed();
+    #pragma omp parallel for
+    for (size_t i = 0; i < n; ++i) {
+        const int64_t cutoff = cutoff_times ? cutoff_times[i] : NO_WALK_CUTOFF;
+        result[i] = temporal_graph::latest_timestamp_for_node(
+            view, nodes[i], cutoff, forward, is_directed);
+    }
+    return result;
+}
+
+HOST std::vector<int64_t> tempest::get_node_participation_counts_std(
+    const core::Tempest* trw, const int* nodes, const size_t n,
+    const int64_t* cutoff_times, const WalkDirection direction) {
+    std::vector<int64_t> result(n);
+    if (n == 0) return result;
+    const TemporalGraphView view = make_temporal_graph_view(trw->data());
+    const bool forward = direction == WalkDirection::Forward_In_Time;
+    const bool is_directed = trw->is_directed();
+    #pragma omp parallel for
+    for (size_t i = 0; i < n; ++i) {
+        const int64_t cutoff = cutoff_times ? cutoff_times[i] : NO_WALK_CUTOFF;
+        result[i] = temporal_graph::participation_count_for_node(
+            view, nodes[i], cutoff, forward, is_directed);
+    }
+    return result;
+}
+
+#ifdef HAS_CUDA
+HOST std::vector<int64_t> tempest::get_latest_timestamps_for_nodes_cuda(
+    const core::Tempest* trw, const int* nodes, const size_t n,
+    const int64_t* cutoff_times, const WalkDirection direction) {
+    std::vector<int64_t> result(n);
+    if (n == 0) return result;
+    const TemporalGraphView view = make_temporal_graph_view(trw->data());
+    const bool forward = direction == WalkDirection::Forward_In_Time;
+    const bool is_directed = trw->is_directed();
+
+    Buffer<int> d_nodes(true);
+    d_nodes.resize(n);
+    CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+        d_nodes.data(), nodes, n * sizeof(int), cudaMemcpyHostToDevice));
+
+    Buffer<int64_t> d_cutoffs(true);
+    const int64_t* d_cutoffs_ptr = nullptr;
+    if (cutoff_times != nullptr) {
+        d_cutoffs.resize(n);
+        CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+            d_cutoffs.data(), cutoff_times, n * sizeof(int64_t), cudaMemcpyHostToDevice));
+        d_cutoffs_ptr = d_cutoffs.data();
+    }
+
+    Buffer<int64_t> d_out(true);
+    d_out.resize(n);
+    const int* d_nodes_ptr = d_nodes.data();
+
+    thrust::transform(
+        DEVICE_EXECUTION_POLICY,
+        thrust::counting_iterator<size_t>(0),
+        thrust::counting_iterator<size_t>(n),
+        thrust::device_ptr<int64_t>(d_out.data()),
+        [view, d_nodes_ptr, d_cutoffs_ptr, forward, is_directed] __device__ (const size_t i) -> int64_t {
+            const int64_t cutoff = d_cutoffs_ptr ? d_cutoffs_ptr[i] : NO_WALK_CUTOFF;
+            return temporal_graph::latest_timestamp_for_node(
+                view, d_nodes_ptr[i], cutoff, forward, is_directed);
+        });
+    CUDA_KERNEL_CHECK("After thrust transform in get_latest_timestamps_for_nodes_cuda");
+
+    CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+        result.data(), d_out.data(), n * sizeof(int64_t), cudaMemcpyDeviceToHost));
+    return result;
+}
+
+HOST std::vector<int64_t> tempest::get_node_participation_counts_cuda(
+    const core::Tempest* trw, const int* nodes, const size_t n,
+    const int64_t* cutoff_times, const WalkDirection direction) {
+    std::vector<int64_t> result(n);
+    if (n == 0) return result;
+    const TemporalGraphView view = make_temporal_graph_view(trw->data());
+    const bool forward = direction == WalkDirection::Forward_In_Time;
+    const bool is_directed = trw->is_directed();
+
+    Buffer<int> d_nodes(true);
+    d_nodes.resize(n);
+    CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+        d_nodes.data(), nodes, n * sizeof(int), cudaMemcpyHostToDevice));
+
+    Buffer<int64_t> d_cutoffs(true);
+    const int64_t* d_cutoffs_ptr = nullptr;
+    if (cutoff_times != nullptr) {
+        d_cutoffs.resize(n);
+        CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+            d_cutoffs.data(), cutoff_times, n * sizeof(int64_t), cudaMemcpyHostToDevice));
+        d_cutoffs_ptr = d_cutoffs.data();
+    }
+
+    Buffer<int64_t> d_out(true);
+    d_out.resize(n);
+    const int* d_nodes_ptr = d_nodes.data();
+
+    thrust::transform(
+        DEVICE_EXECUTION_POLICY,
+        thrust::counting_iterator<size_t>(0),
+        thrust::counting_iterator<size_t>(n),
+        thrust::device_ptr<int64_t>(d_out.data()),
+        [view, d_nodes_ptr, d_cutoffs_ptr, forward, is_directed] __device__ (const size_t i) -> int64_t {
+            const int64_t cutoff = d_cutoffs_ptr ? d_cutoffs_ptr[i] : NO_WALK_CUTOFF;
+            return temporal_graph::participation_count_for_node(
+                view, d_nodes_ptr[i], cutoff, forward, is_directed);
+        });
+    CUDA_KERNEL_CHECK("After thrust transform in get_node_participation_counts_cuda");
+
+    CUDA_CHECK_AND_CLEAR(cudaMemcpy(
+        result.data(), d_out.data(), n * sizeof(int64_t), cudaMemcpyDeviceToHost));
+    return result;
+}
+#endif
 
 HOST std::vector<Edge> tempest::get_edges(const core::Tempest* trw) {
     return temporal_graph::get_edges(trw->data());
@@ -1085,6 +1213,30 @@ std::vector<int64_t> core::Tempest::get_node_degrees(
     CudaDeviceGuard _g(data_.use_gpu ? cuda_device_id_ : -1);
 #endif
     return tempest::get_node_degrees(this, nodes, n, direction);
+}
+
+std::vector<int64_t> core::Tempest::get_latest_timestamps_for_nodes(
+    const int* nodes, const size_t n, const int64_t* cutoff_times,
+    const WalkDirection direction) const {
+#ifdef HAS_CUDA
+    CudaDeviceGuard _g(data_.use_gpu ? cuda_device_id_ : -1);
+    if (data_.use_gpu) {
+        return tempest::get_latest_timestamps_for_nodes_cuda(this, nodes, n, cutoff_times, direction);
+    }
+#endif
+    return tempest::get_latest_timestamps_for_nodes_std(this, nodes, n, cutoff_times, direction);
+}
+
+std::vector<int64_t> core::Tempest::get_node_participation_counts(
+    const int* nodes, const size_t n, const int64_t* cutoff_times,
+    const WalkDirection direction) const {
+#ifdef HAS_CUDA
+    CudaDeviceGuard _g(data_.use_gpu ? cuda_device_id_ : -1);
+    if (data_.use_gpu) {
+        return tempest::get_node_participation_counts_cuda(this, nodes, n, cutoff_times, direction);
+    }
+#endif
+    return tempest::get_node_participation_counts_std(this, nodes, n, cutoff_times, direction);
 }
 std::vector<Edge> core::Tempest::get_edges() const {
 #ifdef HAS_CUDA

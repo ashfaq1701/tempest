@@ -145,6 +145,17 @@ public:
     std::vector<int64_t> get_node_degrees(
         const int* nodes, size_t n,
         WalkDirection direction = WalkDirection::Forward_In_Time) const;
+
+    // Per-node latest edge timestamp strictly before each node's cutoff (-1 if none),
+    // and per-node #edges strictly before the cutoff. cutoff_times = nullptr => whole
+    // history for every node; else one int64 cutoff per input node.
+    std::vector<int64_t> get_latest_timestamps_for_nodes(
+        const int* nodes, size_t n, const int64_t* cutoff_times,
+        WalkDirection direction = WalkDirection::Forward_In_Time) const;
+    std::vector<int64_t> get_node_participation_counts(
+        const int* nodes, size_t n, const int64_t* cutoff_times,
+        WalkDirection direction = WalkDirection::Forward_In_Time) const;
+
     std::vector<Edge> get_edges() const;
     bool get_is_directed() const { return data_.is_directed; }
     void clear();
@@ -181,6 +192,23 @@ namespace tempest {
     HOST std::vector<int64_t> get_node_degrees(
         const core::Tempest* trw,
         const int* nodes, size_t n, WalkDirection direction);
+
+    // Per-node cutoff-bounded queries — separate CPU (_std) / GPU (_cuda) impls.
+    HOST std::vector<int64_t> get_latest_timestamps_for_nodes_std(
+        const core::Tempest* trw, const int* nodes, size_t n,
+        const int64_t* cutoff_times, WalkDirection direction);
+    HOST std::vector<int64_t> get_node_participation_counts_std(
+        const core::Tempest* trw, const int* nodes, size_t n,
+        const int64_t* cutoff_times, WalkDirection direction);
+    #ifdef HAS_CUDA
+    HOST std::vector<int64_t> get_latest_timestamps_for_nodes_cuda(
+        const core::Tempest* trw, const int* nodes, size_t n,
+        const int64_t* cutoff_times, WalkDirection direction);
+    HOST std::vector<int64_t> get_node_participation_counts_cuda(
+        const core::Tempest* trw, const int* nodes, size_t n,
+        const int64_t* cutoff_times, WalkDirection direction);
+    #endif
+
     HOST std::vector<Edge> get_edges(const core::Tempest* trw);
     HOST bool              get_is_directed(const core::Tempest* trw);
     HOST void              clear(core::Tempest* trw);

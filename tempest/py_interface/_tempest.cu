@@ -834,6 +834,126 @@ PYBIND11_MODULE(_tempest, m)
              py::arg("nodes"),
              py::arg("direction") = "Forward_In_Time")
 
+        .def("get_latest_timestamps_for_nodes", [](const Tempest& tw,
+                              const py::array_t<int, py::array::c_style | py::array::forcecast>& nodes,
+                              const std::optional<py::array_t<int64_t, py::array::c_style | py::array::forcecast>>& cutoff_times,
+                              const std::string& direction)
+             {
+                 const py::buffer_info nodes_info = nodes.request();
+                 if (nodes_info.ndim != 1) {
+                     throw std::runtime_error("nodes must be a 1D int32 array");
+                 }
+                 const auto* nodes_ptr = static_cast<const int*>(nodes_info.ptr);
+                 const auto num_nodes = static_cast<size_t>(nodes_info.shape[0]);
+
+                 // Optional per-node EXCLUSIVE cutoff; nullptr => whole history.
+                 const int64_t* cutoff_ptr = nullptr;
+                 py::buffer_info cutoff_info;
+                 if (cutoff_times.has_value()) {
+                     cutoff_info = cutoff_times->request();
+                     if (cutoff_info.ndim != 1) {
+                         throw std::runtime_error("cutoff_times must be a 1D int64 array");
+                     }
+                     if (static_cast<size_t>(cutoff_info.shape[0]) != num_nodes) {
+                         throw std::runtime_error("cutoff_times must have the same length as nodes");
+                     }
+                     cutoff_ptr = static_cast<const int64_t*>(cutoff_info.ptr);
+                 }
+
+                 const WalkDirection direction_enum = walk_direction_from_string(direction);
+                 const std::vector<int64_t> out = tw.get_latest_timestamps_for_nodes(
+                     nodes_ptr, num_nodes, cutoff_ptr, direction_enum);
+
+                 py::array_t<int64_t> result(static_cast<ssize_t>(out.size()));
+                 if (!out.empty()) {
+                     std::copy_n(out.data(), out.size(),
+                                 static_cast<int64_t*>(result.request().ptr));
+                 }
+                 return result;
+             },
+             R"(
+             Latest edge timestamp for each queried node, strictly before its cutoff.
+
+             For each node, returns the timestamp of its most recent edge with
+             t_edge < cutoff (the node's latest edge overall when cutoff_times is
+             None). -1 when the node has no such edge (inactive, isolated, or all
+             its edges are at/after the cutoff). O(log G) per node via the sorted
+             timestamp-group CSR; parallel (thrust on GPU, OpenMP on CPU).
+
+             Args:
+                 nodes (np.ndarray): 1D int32 array of node ids (duplicates allowed).
+                 cutoff_times (np.ndarray, optional): 1D int64 array, one EXCLUSIVE
+                     cutoff per node (same length as nodes). None => whole history.
+                 direction (str, optional): "Forward_In_Time" (default) uses the
+                     node's outbound edges, "Backward_In_Time" its inbound edges;
+                     undirected graphs use all incident edges either way.
+
+             Returns:
+                 np.ndarray: 1D int64 array, len == len(nodes); -1 where none.
+             )",
+             py::arg("nodes"),
+             py::arg("cutoff_times") = py::none(),
+             py::arg("direction") = "Forward_In_Time")
+
+        .def("get_node_participation_counts", [](const Tempest& tw,
+                              const py::array_t<int, py::array::c_style | py::array::forcecast>& nodes,
+                              const std::optional<py::array_t<int64_t, py::array::c_style | py::array::forcecast>>& cutoff_times,
+                              const std::string& direction)
+             {
+                 const py::buffer_info nodes_info = nodes.request();
+                 if (nodes_info.ndim != 1) {
+                     throw std::runtime_error("nodes must be a 1D int32 array");
+                 }
+                 const auto* nodes_ptr = static_cast<const int*>(nodes_info.ptr);
+                 const auto num_nodes = static_cast<size_t>(nodes_info.shape[0]);
+
+                 const int64_t* cutoff_ptr = nullptr;
+                 py::buffer_info cutoff_info;
+                 if (cutoff_times.has_value()) {
+                     cutoff_info = cutoff_times->request();
+                     if (cutoff_info.ndim != 1) {
+                         throw std::runtime_error("cutoff_times must be a 1D int64 array");
+                     }
+                     if (static_cast<size_t>(cutoff_info.shape[0]) != num_nodes) {
+                         throw std::runtime_error("cutoff_times must have the same length as nodes");
+                     }
+                     cutoff_ptr = static_cast<const int64_t*>(cutoff_info.ptr);
+                 }
+
+                 const WalkDirection direction_enum = walk_direction_from_string(direction);
+                 const std::vector<int64_t> out = tw.get_node_participation_counts(
+                     nodes_ptr, num_nodes, cutoff_ptr, direction_enum);
+
+                 py::array_t<int64_t> result(static_cast<ssize_t>(out.size()));
+                 if (!out.empty()) {
+                     std::copy_n(out.data(), out.size(),
+                                 static_cast<int64_t*>(result.request().ptr));
+                 }
+                 return result;
+             },
+             R"(
+             Number of edges each queried node participates in, strictly before its cutoff.
+
+             For each node, counts its edges with t_edge < cutoff (the node's total
+             degree when cutoff_times is None). 0 when the node has no such edge.
+             O(log G) per node via the sorted timestamp-group CSR; parallel (thrust
+             on GPU, OpenMP on CPU).
+
+             Args:
+                 nodes (np.ndarray): 1D int32 array of node ids (duplicates allowed).
+                 cutoff_times (np.ndarray, optional): 1D int64 array, one EXCLUSIVE
+                     cutoff per node (same length as nodes). None => whole history.
+                 direction (str, optional): "Forward_In_Time" (default) counts the
+                     node's outbound edges, "Backward_In_Time" its inbound edges;
+                     undirected graphs count all incident edges either way.
+
+             Returns:
+                 np.ndarray: 1D int64 array of counts, len == len(nodes).
+             )",
+             py::arg("nodes"),
+             py::arg("cutoff_times") = py::none(),
+             py::arg("direction") = "Forward_In_Time")
+
         .def("clear", &Tempest::clear,
              R"(
             Clears and reinitiates the underlying graph.

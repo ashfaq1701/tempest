@@ -119,6 +119,84 @@ namespace temporal_graph {
         }
     }
 
+    // ── Per-node cutoff-bounded queries (start-hop semantics) ─────────────────
+    // Both queries below reuse filter_valid_groups_by_timestamp_slice with
+    // timestamp == -1, so ONLY the cutoff branch runs and the directional (Forward)
+    // template param is irrelevant — the "latest group strictly before cutoff" is
+    // out_valid_end - 1. cutoff == NO_WALK_CUTOFF means the whole history. The
+    // `forward` flag selects the node's OUTBOUND (as source) vs INBOUND (as target)
+    // timestamp-group CSR; undirected graphs always use outbound (= all incident).
+
+    struct NodeGroupSlice {
+        const size_t* group_offsets;    // node_ts_group_{out,in}bound_offsets (global, group -> edge slot)
+        const size_t* sorted_indices;   // node_ts_sorted_{out,in}bound_indices (slot -> global edge idx)
+        const size_t* edge_offsets;     // node_group_{out,in}bound_offsets (node -> edge slot; degree CSR)
+        size_t        group_begin;      // first global group of this node
+        int           G;                // number of timestamp groups for this node
+        bool          valid;            // node is active AND has at least one group
+    };
+
+    HOST DEVICE inline NodeGroupSlice select_node_group_slice(
+        const TemporalGraphView& view, const int node_id,
+        const bool forward, const bool is_directed) {
+        NodeGroupSlice s{nullptr, nullptr, nullptr, 0, 0, false};
+        if (node_id < 0
+            || static_cast<size_t>(node_id) >= view.active_node_ids_size
+            || view.active_node_ids[node_id] != 1) {
+            return s;
+        }
+        const bool use_outbound = forward || !is_directed;
+        const size_t* count_ts_group = use_outbound
+            ? view.count_ts_group_per_node_outbound : view.count_ts_group_per_node_inbound;
+        s.group_offsets  = use_outbound
+            ? view.node_ts_group_outbound_offsets : view.node_ts_group_inbound_offsets;
+        s.sorted_indices = use_outbound
+            ? view.node_ts_sorted_outbound_indices : view.node_ts_sorted_inbound_indices;
+        s.edge_offsets   = use_outbound
+            ? view.node_group_outbound_offsets : view.node_group_inbound_offsets;
+        s.group_begin = count_ts_group[node_id];
+        const size_t group_end = count_ts_group[node_id + 1];
+        if (s.group_begin == group_end) return s;   // active but no edges -> valid stays false
+        s.G = static_cast<int>(group_end - s.group_begin);
+        s.valid = true;
+        return s;
+    }
+
+    // Latest edge timestamp for node_id strictly before cutoff; -1 if the node has
+    // no edge before cutoff (or is inactive/empty).
+    HOST DEVICE inline int64_t latest_timestamp_for_node(
+        const TemporalGraphView& view, const int node_id, const int64_t cutoff,
+        const bool forward, const bool is_directed) {
+        const NodeGroupSlice s = select_node_group_slice(view, node_id, forward, is_directed);
+        if (!s.valid) return -1;
+        int valid_begin = 0, valid_end = s.G;
+        filter_valid_groups_by_timestamp_slice<true>(
+            s.group_offsets + s.group_begin, /*first_ts=*/nullptr,
+            s.sorted_indices, view.timestamps,
+            s.G, /*timestamp=*/-1, cutoff, valid_begin, valid_end);
+        if (valid_end <= 0) return -1;
+        return view.timestamps[s.sorted_indices[s.group_offsets[s.group_begin + valid_end - 1]]];
+    }
+
+    // Number of edges node_id participates in strictly before cutoff (0 if none).
+    HOST DEVICE inline int64_t participation_count_for_node(
+        const TemporalGraphView& view, const int node_id, const int64_t cutoff,
+        const bool forward, const bool is_directed) {
+        const NodeGroupSlice s = select_node_group_slice(view, node_id, forward, is_directed);
+        if (!s.valid) return 0;
+        int valid_begin = 0, valid_end = s.G;
+        filter_valid_groups_by_timestamp_slice<true>(
+            s.group_offsets + s.group_begin, /*first_ts=*/nullptr,
+            s.sorted_indices, view.timestamps,
+            s.G, /*timestamp=*/-1, cutoff, valid_begin, valid_end);
+        if (valid_end <= 0) return 0;
+        const size_t edge_begin = s.edge_offsets[node_id];               // node's first edge slot
+        const size_t edge_end = (valid_end == s.G)                       // last valid group's edge-end:
+            ? s.edge_offsets[node_id + 1]                                //   full history -> degree-CSR end
+            : s.group_offsets[s.group_begin + static_cast<size_t>(valid_end)];  // else next group's start
+        return static_cast<int64_t>(edge_end - edge_begin);
+    }
+
     // returns the picked group's local index in [0, G), or -1.
     // cum_weights is the full per-graph array; slice_global_begin shifts
     // local <-> global for the weighted picker. s_cum_weights, when set,

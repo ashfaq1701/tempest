@@ -212,3 +212,66 @@ TYPED_TEST(NodeEdgeIndexTest, EdgeCasesTest) {
 
     EXPECT_EQ(node_edge_index::get_timestamp_group_count(data, 4, /*forward=*/false), 0u);
 }
+
+// Directed graph: 10->20@100, 10->30@100, 10->20@200, 20->30@300, 20->10@300.
+TYPED_TEST(NodeEdgeIndexTest, LatestTimestampsForNodes) {
+    auto local = this->make_simple_directed_graph();
+    const std::vector<int> nodes = {10, 20, 30, 999};   // 30 = no outbound, 999 = inactive
+
+    // No cutoff -> each node's latest OUTBOUND edge time.
+    auto latest = local.get_latest_timestamps_for_nodes(
+        nodes.data(), nodes.size(), /*cutoff_times=*/nullptr, WalkDirection::Forward_In_Time);
+    ASSERT_EQ(latest.size(), nodes.size());
+    EXPECT_EQ(latest[0], 200);   // node 10: max(100,100,200)
+    EXPECT_EQ(latest[1], 300);   // node 20: 300
+    EXPECT_EQ(latest[2], -1);    // node 30: no outbound edge
+    EXPECT_EQ(latest[3], -1);    // node 999: inactive
+
+    // Per-node EXCLUSIVE cutoffs.
+    const std::vector<int64_t> cutoffs = {200, 300, 1000, 1000};
+    latest = local.get_latest_timestamps_for_nodes(
+        nodes.data(), nodes.size(), cutoffs.data(), WalkDirection::Forward_In_Time);
+    EXPECT_EQ(latest[0], 100);   // node 10, t < 200 -> 100
+    EXPECT_EQ(latest[1], -1);    // node 20, t < 300 -> none (both edges at 300)
+
+    // Cutoff at/below the earliest edge -> none.
+    const std::vector<int64_t> tight = {100, 100, 100, 100};
+    latest = local.get_latest_timestamps_for_nodes(
+        nodes.data(), nodes.size(), tight.data(), WalkDirection::Forward_In_Time);
+    EXPECT_EQ(latest[0], -1);    // node 10, t < 100 -> none
+
+    // Backward uses INBOUND edges: node 20 inbound = 10->20@{100,200} -> latest 200.
+    const auto latest_in = local.get_latest_timestamps_for_nodes(
+        nodes.data(), nodes.size(), nullptr, WalkDirection::Backward_In_Time);
+    EXPECT_EQ(latest_in[1], 200);
+}
+
+TYPED_TEST(NodeEdgeIndexTest, NodeParticipationCounts) {
+    auto local = this->make_simple_directed_graph();
+    const std::vector<int> nodes = {10, 20, 30, 999};
+
+    // No cutoff -> outbound degree.
+    auto counts = local.get_node_participation_counts(
+        nodes.data(), nodes.size(), /*cutoff_times=*/nullptr, WalkDirection::Forward_In_Time);
+    ASSERT_EQ(counts.size(), nodes.size());
+    EXPECT_EQ(counts[0], 3);   // node 10: 3 outbound edges
+    EXPECT_EQ(counts[1], 2);   // node 20: 2 outbound edges (both @300)
+    EXPECT_EQ(counts[2], 0);   // node 30: no outbound
+    EXPECT_EQ(counts[3], 0);   // inactive
+
+    const std::vector<int64_t> cutoffs = {200, 300, 1000, 1000};
+    counts = local.get_node_participation_counts(
+        nodes.data(), nodes.size(), cutoffs.data(), WalkDirection::Forward_In_Time);
+    EXPECT_EQ(counts[0], 2);   // node 10, t < 200 -> two @100
+    EXPECT_EQ(counts[1], 0);   // node 20, t < 300 -> none
+
+    const std::vector<int64_t> tight = {100, 100, 100, 100};
+    counts = local.get_node_participation_counts(
+        nodes.data(), nodes.size(), tight.data(), WalkDirection::Forward_In_Time);
+    EXPECT_EQ(counts[0], 0);   // node 10, t < 100 -> none
+
+    // Backward -> inbound degree: node 20 inbound = 10->20@{100,200} -> 2.
+    const auto counts_in = local.get_node_participation_counts(
+        nodes.data(), nodes.size(), nullptr, WalkDirection::Backward_In_Time);
+    EXPECT_EQ(counts_in[1], 2);
+}
