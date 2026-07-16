@@ -834,7 +834,7 @@ PYBIND11_MODULE(_tempest, m)
              py::arg("nodes"),
              py::arg("direction") = "Forward_In_Time")
 
-        .def("get_latest_timestamps_for_nodes", [](const Tempest& tw,
+        .def("get_latest_events_for_nodes", [](const Tempest& tw,
                               const py::array_t<int, py::array::c_style | py::array::forcecast>& nodes,
                               const std::optional<py::array_t<int64_t, py::array::c_style | py::array::forcecast>>& cutoff_times,
                               const std::string& direction)
@@ -861,22 +861,29 @@ PYBIND11_MODULE(_tempest, m)
                  }
 
                  const WalkDirection direction_enum = walk_direction_from_string(direction);
-                 const std::vector<int64_t> out = tw.get_latest_timestamps_for_nodes(
+                 // {partner_nodes, timestamps}, each length num_nodes.
+                 const auto out = tw.get_latest_events_for_nodes(
                      nodes_ptr, num_nodes, cutoff_ptr, direction_enum);
+                 const std::vector<int64_t>& partner_nodes = out.first;
+                 const std::vector<int64_t>& timestamps = out.second;
 
-                 py::array_t<int64_t> result(static_cast<ssize_t>(out.size()));
-                 if (!out.empty()) {
-                     std::copy_n(out.data(), out.size(),
-                                 static_cast<int64_t*>(result.request().ptr));
+                 py::array_t<int64_t> nodes_arr(static_cast<ssize_t>(partner_nodes.size()));
+                 py::array_t<int64_t> ts_arr(static_cast<ssize_t>(timestamps.size()));
+                 if (!partner_nodes.empty()) {
+                     std::copy_n(partner_nodes.data(), partner_nodes.size(),
+                                 static_cast<int64_t*>(nodes_arr.request().ptr));
+                     std::copy_n(timestamps.data(), timestamps.size(),
+                                 static_cast<int64_t*>(ts_arr.request().ptr));
                  }
-                 return result;
+                 return py::make_tuple(nodes_arr, ts_arr);
              },
              R"(
-             Latest edge timestamp for each queried node, strictly before its cutoff.
+             Latest EVENT for each queried node, strictly before its cutoff.
 
-             For each node, returns the timestamp of its most recent edge with
-             t_edge < cutoff (the node's latest edge overall when cutoff_times is
-             None). -1 when the node has no such edge (inactive, isolated, or all
+             For each node, returns its most recent edge with t_edge < cutoff (the
+             node's latest edge overall when cutoff_times is None) as BOTH endpoints:
+             the PARTNER node (the other endpoint of that edge) and the timestamp.
+             Both are -1 when the node has no such edge (inactive, isolated, or all
              its edges are at/after the cutoff). O(log G) per node via the sorted
              timestamp-group CSR; parallel (thrust on GPU, OpenMP on CPU).
 
@@ -889,7 +896,9 @@ PYBIND11_MODULE(_tempest, m)
                      undirected graphs use all incident edges either way.
 
              Returns:
-                 np.ndarray: 1D int64 array, len == len(nodes); -1 where none.
+                 (np.ndarray, np.ndarray): a tuple (partner_nodes, timestamps), each a
+                     1D int64 array of len == len(nodes); -1 where none. Unpack as
+                     `partners, timestamps = get_latest_events_for_nodes(...)`.
              )",
              py::arg("nodes"),
              py::arg("cutoff_times") = py::none(),

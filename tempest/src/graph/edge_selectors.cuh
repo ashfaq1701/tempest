@@ -162,20 +162,32 @@ namespace temporal_graph {
         return s;
     }
 
-    // Latest edge timestamp for node_id strictly before cutoff; -1 if the node has
-    // no edge before cutoff (or is inactive/empty).
-    HOST DEVICE inline int64_t latest_timestamp_for_node(
+    // node_id's most recent edge strictly before cutoff, as both endpoints of that edge:
+    //   node      = the PARTNER (the other endpoint of that edge)
+    //   timestamp = the edge time
+    // Both are -1 when the node has no edge before cutoff (or is inactive/empty).
+    struct NodeEvent {
+        int64_t node;        // partner node id (other endpoint); -1 if none
+        int64_t timestamp;   // edge timestamp; -1 if none
+    };
+
+    HOST DEVICE inline NodeEvent latest_event_for_node(
         const TemporalGraphView& view, const int node_id, const int64_t cutoff,
         const bool forward, const bool is_directed) {
         const NodeGroupSlice s = select_node_group_slice(view, node_id, forward, is_directed);
-        if (!s.valid) return -1;
+        if (!s.valid) return {-1, -1};
         int valid_begin = 0, valid_end = s.G;
         filter_valid_groups_by_timestamp_slice<true>(
             s.group_offsets + s.group_begin, /*first_ts=*/nullptr,
             s.sorted_indices, view.timestamps,
             s.G, /*timestamp=*/-1, cutoff, valid_begin, valid_end);
-        if (valid_end <= 0) return -1;
-        return view.timestamps[s.sorted_indices[s.group_offsets[s.group_begin + valid_end - 1]]];
+        if (valid_end <= 0) return {-1, -1};
+        // Global edge index of the latest valid group's first edge (the same edge whose time we read).
+        const size_t edge_idx = s.sorted_indices[s.group_offsets[s.group_begin + valid_end - 1]];
+        // Partner = whichever endpoint is not node_id (works for directed out/in and undirected incident).
+        const int partner = (view.sources[edge_idx] == node_id)
+            ? view.targets[edge_idx] : view.sources[edge_idx];
+        return {static_cast<int64_t>(partner), view.timestamps[edge_idx]};
     }
 
     // Number of edges node_id participates in strictly before cutoff (0 if none).

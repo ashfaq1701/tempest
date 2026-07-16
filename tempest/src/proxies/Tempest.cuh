@@ -102,7 +102,7 @@ public:
         const int* nodes, size_t n,
         WalkDirection direction = WalkDirection::Forward_In_Time) const;
 
-    [[nodiscard]] std::vector<int64_t> get_latest_timestamps_for_nodes(
+    [[nodiscard]] std::pair<std::vector<int64_t>, std::vector<int64_t>> get_latest_events_for_nodes(
         const int* nodes, size_t n, const int64_t* cutoff_times,
         WalkDirection direction = WalkDirection::Forward_In_Time) const;
     [[nodiscard]] std::vector<int64_t> get_node_participation_counts(

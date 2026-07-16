@@ -114,10 +114,10 @@ std::vector<int64_t> Tempest::get_node_degrees(
     return impl_->get_node_degrees(nodes, n, direction);
 }
 
-std::vector<int64_t> Tempest::get_latest_timestamps_for_nodes(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> Tempest::get_latest_events_for_nodes(
     const int* nodes, const size_t n, const int64_t* cutoff_times,
     const WalkDirection direction) const {
-    return impl_->get_latest_timestamps_for_nodes(nodes, n, cutoff_times, direction);
+    return impl_->get_latest_events_for_nodes(nodes, n, cutoff_times, direction);
 }
 
 std::vector<int64_t> Tempest::get_node_participation_counts(

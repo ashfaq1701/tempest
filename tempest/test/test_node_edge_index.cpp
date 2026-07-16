@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <tuple>
+#include <vector>
 
 #include "../src/common/const.cuh"
 #include "../src/core/tempest.cuh"
@@ -214,36 +216,47 @@ TYPED_TEST(NodeEdgeIndexTest, EdgeCasesTest) {
 }
 
 // Directed graph: 10->20@100, 10->30@100, 10->20@200, 20->30@300, 20->10@300.
-TYPED_TEST(NodeEdgeIndexTest, LatestTimestampsForNodes) {
+TYPED_TEST(NodeEdgeIndexTest, LatestEventsForNodes) {
     auto local = this->make_simple_directed_graph();
     const std::vector<int> nodes = {10, 20, 30, 999};   // 30 = no outbound, 999 = inactive
 
-    // No cutoff -> each node's latest OUTBOUND edge time.
-    auto latest = local.get_latest_timestamps_for_nodes(
+    // No cutoff -> each node's latest OUTBOUND event: (partner, timestamp).
+    std::vector<int64_t> partners, latest;
+    std::tie(partners, latest) = local.get_latest_events_for_nodes(
         nodes.data(), nodes.size(), /*cutoff_times=*/nullptr, WalkDirection::Forward_In_Time);
     ASSERT_EQ(latest.size(), nodes.size());
-    EXPECT_EQ(latest[0], 200);   // node 10: max(100,100,200)
-    EXPECT_EQ(latest[1], 300);   // node 20: 300
-    EXPECT_EQ(latest[2], -1);    // node 30: no outbound edge
-    EXPECT_EQ(latest[3], -1);    // node 999: inactive
+    ASSERT_EQ(partners.size(), nodes.size());
+    EXPECT_EQ(latest[0], 200);                                 // node 10: latest 10->20@200
+    EXPECT_EQ(partners[0], 20);                                //   partner 20 (unambiguous, single edge @200)
+    EXPECT_EQ(latest[1], 300);                                 // node 20: latest @300
+    EXPECT_TRUE(partners[1] == 30 || partners[1] == 10);       //   tie (20->30, 20->10 both @300)
+    EXPECT_EQ(latest[2], -1);                                  // node 30: no outbound
+    EXPECT_EQ(partners[2], -1);
+    EXPECT_EQ(latest[3], -1);                                  // node 999: inactive
+    EXPECT_EQ(partners[3], -1);
 
     // Per-node EXCLUSIVE cutoffs.
     const std::vector<int64_t> cutoffs = {200, 300, 1000, 1000};
-    latest = local.get_latest_timestamps_for_nodes(
+    std::tie(partners, latest) = local.get_latest_events_for_nodes(
         nodes.data(), nodes.size(), cutoffs.data(), WalkDirection::Forward_In_Time);
-    EXPECT_EQ(latest[0], 100);   // node 10, t < 200 -> 100
-    EXPECT_EQ(latest[1], -1);    // node 20, t < 300 -> none (both edges at 300)
+    EXPECT_EQ(latest[0], 100);                                 // node 10, t < 200 -> 100
+    EXPECT_TRUE(partners[0] == 20 || partners[0] == 30);       //   tie (10->20, 10->30 both @100)
+    EXPECT_EQ(latest[1], -1);                                  // node 20, t < 300 -> none
+    EXPECT_EQ(partners[1], -1);
 
     // Cutoff at/below the earliest edge -> none.
     const std::vector<int64_t> tight = {100, 100, 100, 100};
-    latest = local.get_latest_timestamps_for_nodes(
+    std::tie(partners, latest) = local.get_latest_events_for_nodes(
         nodes.data(), nodes.size(), tight.data(), WalkDirection::Forward_In_Time);
-    EXPECT_EQ(latest[0], -1);    // node 10, t < 100 -> none
+    EXPECT_EQ(latest[0], -1);                                  // node 10, t < 100 -> none
+    EXPECT_EQ(partners[0], -1);
 
-    // Backward uses INBOUND edges: node 20 inbound = 10->20@{100,200} -> latest 200.
-    const auto latest_in = local.get_latest_timestamps_for_nodes(
+    // Backward uses INBOUND edges: node 20 inbound = 10->20@{100,200} -> latest 200, partner 10.
+    std::vector<int64_t> partners_in, latest_in;
+    std::tie(partners_in, latest_in) = local.get_latest_events_for_nodes(
         nodes.data(), nodes.size(), nullptr, WalkDirection::Backward_In_Time);
     EXPECT_EQ(latest_in[1], 200);
+    EXPECT_EQ(partners_in[1], 10);                             //   unambiguous: 10->20@200
 }
 
 TYPED_TEST(NodeEdgeIndexTest, NodeParticipationCounts) {
