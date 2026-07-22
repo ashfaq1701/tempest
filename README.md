@@ -169,7 +169,7 @@ If you use Tempest in your research, please cite:
   address   = {Singapore},
   year      = {2026},
   publisher = {Association for Computing Machinery},
-  doi       = {10.1145/XXXXXXX.XXXXXXX}
+  doi       = {10.1145/3832810.3832885}
 }
 ```
 
