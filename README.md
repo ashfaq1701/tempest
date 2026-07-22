@@ -1,5 +1,6 @@
 # 🚀 Tempest
 
+[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b.svg)](https://arxiv.org/abs/2605.16182)
 [![Build Passing](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml/badge.svg?branch=master)](https://github.com/ashfaq1701/tempest/actions/workflows/cpu-tests.yml)
 [![PyPI Latest Release](https://img.shields.io/pypi/v/tempest-rw.svg)](https://pypi.org/project/tempest-rw/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/tempest-rw.svg)](https://pypi.org/project/tempest-rw/)
