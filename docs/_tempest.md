@@ -129,6 +129,32 @@ Classes
         Returns:
            int: The total number of directed edges.
 
+    `get_latest_events_for_nodes(...)`
+    :   get_latest_events_for_nodes(self: _tempest.Tempest, nodes: typing.Annotated[numpy.typing.ArrayLike, numpy.int32], cutoff_times: typing.Annotated[numpy.typing.ArrayLike, numpy.int64] | None = None, direction: str = 'Forward_In_Time') -> tuple[numpy.typing.NDArray[numpy.int64], numpy.typing.NDArray[numpy.int64]]
+        
+        
+        Latest EVENT for each queried node, strictly before its cutoff.
+        
+        For each node, returns its most recent edge with t_edge < cutoff (the
+        node's latest edge overall when cutoff_times is None) as BOTH endpoints:
+        the PARTNER node (the other endpoint of that edge) and the timestamp.
+        Both are -1 when the node has no such edge (inactive, isolated, or all
+        its edges are at/after the cutoff). O(log G) per node via the sorted
+        timestamp-group CSR; parallel (thrust on GPU, OpenMP on CPU).
+        
+        Args:
+            nodes (np.ndarray): 1D int32 array of node ids (duplicates allowed).
+            cutoff_times (np.ndarray, optional): 1D int64 array, one EXCLUSIVE
+                cutoff per node (same length as nodes). None => whole history.
+            direction (str, optional): "Forward_In_Time" (default) uses the
+                node's outbound edges, "Backward_In_Time" its inbound edges;
+                undirected graphs use all incident edges either way.
+        
+        Returns:
+            (np.ndarray, np.ndarray): a tuple (partner_nodes, timestamps), each a
+                1D int64 array of len == len(nodes); -1 where none. Unpack as
+                `partners, timestamps = get_latest_events_for_nodes(...)`.
+
     `get_memory_used(self: _tempest.Tempest)`
     :   Returns the memory used by the application in bytes.
         
@@ -179,6 +205,28 @@ Classes
         
         Returns:
             np.ndarray: A NumPy array with all node IDs.
+
+    `get_node_participation_counts(...)`
+    :   get_node_participation_counts(self: _tempest.Tempest, nodes: typing.Annotated[numpy.typing.ArrayLike, numpy.int32], cutoff_times: typing.Annotated[numpy.typing.ArrayLike, numpy.int64] | None = None, direction: str = 'Forward_In_Time') -> numpy.typing.NDArray[numpy.int64]
+        
+        
+        Number of edges each queried node participates in, strictly before its cutoff.
+        
+        For each node, counts its edges with t_edge < cutoff (the node's total
+        degree when cutoff_times is None). 0 when the node has no such edge.
+        O(log G) per node via the sorted timestamp-group CSR; parallel (thrust
+        on GPU, OpenMP on CPU).
+        
+        Args:
+            nodes (np.ndarray): 1D int32 array of node ids (duplicates allowed).
+            cutoff_times (np.ndarray, optional): 1D int64 array, one EXCLUSIVE
+                cutoff per node (same length as nodes). None => whole history.
+            direction (str, optional): "Forward_In_Time" (default) counts the
+                node's outbound edges, "Backward_In_Time" its inbound edges;
+                undirected graphs count all incident edges either way.
+        
+        Returns:
+            np.ndarray: 1D int64 array of counts, len == len(nodes).
 
     `get_random_walks_and_times(...)`
     :   get_random_walks_and_times(self: _tempest.Tempest, max_walk_len: typing.SupportsInt | typing.SupportsIndex, walk_bias: str, num_walks_total: typing.SupportsInt | typing.SupportsIndex, initial_edge_bias: str | None = None, walk_direction: str = 'Forward_In_Time', kernel_launch_type: str = 'NODE_GROUPED') -> tuple[numpy.typing.NDArray[numpy.int32], numpy.typing.NDArray[numpy.int64], numpy.typing.NDArray[numpy.uint64], object]
