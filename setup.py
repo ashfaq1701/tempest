@@ -13,6 +13,96 @@ def find_cmake():
         raise RuntimeError("CMake must be installed to build the following extensions: _tempest")
 
 
+DEFAULT_COMPILERS = ('/usr/bin/gcc', '/usr/bin/g++')
+
+# ---------------------------------------------------------------------------
+# macOS build support
+#
+# Two host quirks need patching up on macOS, and nowhere else:
+#
+#   1. Apple's /usr/bin/{gcc,g++} are clang shims with no OpenMP support, so
+#      CMake's `find_package(OpenMP REQUIRED)` fails outright. Homebrew LLVM
+#      ships a working one.
+#   2. The pip-installed cmake does not search Homebrew prefixes, so
+#      `find_package(TBB REQUIRED)` fails even after `brew install tbb`.
+#
+# Homebrew is a build-time requirement only - the published wheel vendors the
+# resulting dylibs. See build_scripts/build_wheel_macos.sh and
+# docs/MACOS_PUBLISHING.md.
+# ---------------------------------------------------------------------------
+
+IS_MACOS = sys.platform == 'darwin'
+
+# Compiler pairs to probe, most preferred first. Homebrew LLVM covers both the
+# Apple Silicon (/opt/homebrew) and Intel (/usr/local) layouts; Homebrew GCC is
+# a last resort.
+_MACOS_COMPILER_CANDIDATES = (
+    ('/opt/homebrew/opt/llvm/bin/clang', '/opt/homebrew/opt/llvm/bin/clang++'),
+    ('/usr/local/opt/llvm/bin/clang', '/usr/local/opt/llvm/bin/clang++'),
+    ('/opt/homebrew/bin/gcc-14', '/opt/homebrew/bin/g++-14'),
+)
+
+# Homebrew prefixes to probe, Apple Silicon first. TBB is the marker, being the
+# dependency CMake cannot locate unaided.
+_MACOS_BREW_PREFIXES = ('/opt/homebrew', '/usr/local')
+
+
+def _macos_openmp_compilers():
+    """First installed pair from _MACOS_COMPILER_CANDIDATES, i.e. one with OpenMP."""
+    for cc, cxx in _MACOS_COMPILER_CANDIDATES:
+        if os.path.exists(cc) and os.path.exists(cxx):
+            return cc, cxx
+
+    raise RuntimeError(
+        "No OpenMP-capable compiler found. Apple's /usr/bin/g++ cannot build this "
+        "project. Install one with `brew install llvm tbb`, or set CC/CXX explicitly."
+    )
+
+
+def _macos_homebrew_prefix():
+    """Homebrew prefix that has TBB installed, or None if none of them do."""
+    for prefix in _MACOS_BREW_PREFIXES:
+        if os.path.isdir(os.path.join(prefix, 'opt', 'tbb')):
+            return prefix
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Platform-neutral entry points, used by CMakeBuild below
+# ---------------------------------------------------------------------------
+
+
+def resolve_compilers():
+    """The (C, C++) compiler pair to build with.
+
+    CC/CXX from the environment always win - the Linux wheel build and the macOS
+    ASAN script both set them explicitly. A platform default is only probed for
+    when one of the two is missing.
+    """
+    cc = os.environ.get('CC')
+    cxx = os.environ.get('CXX')
+    if cc and cxx:
+        return cc, cxx
+
+    default_cc, default_cxx = (
+        _macos_openmp_compilers() if IS_MACOS else DEFAULT_COMPILERS
+    )
+    return cc or default_cc, cxx or default_cxx
+
+
+def platform_cmake_args():
+    """Extra CMake args the host platform needs. Empty everywhere but macOS."""
+    if not IS_MACOS:
+        return []
+
+    # An explicit CMAKE_PREFIX_PATH always wins - never clobber the caller's
+    # prefix list, which on Linux points CMake at vcpkg and CUDA.
+    prefix = _macos_homebrew_prefix()
+    if prefix and 'CMAKE_PREFIX_PATH' not in os.environ:
+        return [f'-DCMAKE_PREFIX_PATH={prefix}']
+    return []
+
+
 class CMakeExtension(Extension):
     def __init__(self, name):
         super().__init__(name, sources=[])
@@ -40,13 +130,15 @@ class CMakeBuild(build_ext):
             '-DBUILD_TESTS=OFF',
         ]
 
-        # Find compilers - Use environment variables or defaults
-        cc = os.environ.get('CC', '/usr/bin/gcc')
-        cxx = os.environ.get('CXX', '/usr/bin/g++')
+        # Find compilers - environment variables win over the platform default
+        cc, cxx = resolve_compilers()
 
         # Add compiler paths to cmake args
         cmake_args.append(f'-DCMAKE_C_COMPILER={cc}')
         cmake_args.append(f'-DCMAKE_CXX_COMPILER={cxx}')
+
+        # Anything else this host needs (Homebrew prefix on macOS, nothing on Linux)
+        cmake_args += platform_cmake_args()
 
         # Use environment-defined Python paths if available
         python_executable = os.environ.get('PYTHON_EXECUTABLE', sys.executable)

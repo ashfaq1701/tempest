@@ -3,6 +3,7 @@ setuptools
 wheel
 twine
 auditwheel
+delocate; sys_platform == "darwin"
 pybind11
 numpy
 networkx
