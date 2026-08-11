@@ -173,8 +173,4 @@ If you use Tempest in your research, please cite:
 }
 ```
 
----
-
-## 👨‍🔬 Built by [Packets Research Lab](https://packets-lab.github.io/)
-
 🚀 **Contributions welcome!** Open a PR or issue if you have suggestions.  
